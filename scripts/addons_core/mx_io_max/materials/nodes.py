@@ -400,4 +400,3 @@ class MaterialBuilder:
         if normal is not None:
             tree.links.new(normal, bump.inputs["Normal"])
         return bump.outputs["Normal"]
-
