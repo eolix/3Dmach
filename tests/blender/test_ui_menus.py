@@ -238,6 +238,8 @@ def check_indirect_operators(test, layout, context):
     for op in layout.operators("wm.tool_set_by_id"):
         test.assertTrue(op.values["name"].startswith("builtin."), op.values["name"])
         test.assertEqual(op.values.get("space_type"), 'VIEW_3D')
+    for op in layout.operators("mx_ui.set_tool"):
+        test.assertTrue(op.values["name"].startswith("builtin."), op.values["name"])
 
 
 # -----------------------------------------------------------------------------
@@ -294,7 +296,7 @@ class RegistrationTest(unittest.TestCase):
     def test_operators_registered(self):
         for idname in ("mx_ui.viewport_call", "mx_ui.viewport_toggle", "mx_ui.isolate_selection",
                        "mx_ui.open_editor_window", "mx_ui.run_script", "mx_ui.active_shade", "mx_ui.redraw_views",
-                       "mx_ui.toolbar_flyout", "mx_ui.snap_toggle", "object.mx_mirror",
+                       "mx_ui.toolbar_flyout", "mx_ui.snap_toggle", "mx_ui.set_tool", "object.mx_mirror",
                        "object.mx_camera_from_view"):
             with self.subTest(idname=idname):
                 _operator_rna(idname)
@@ -473,7 +475,7 @@ class ToolbarTest(unittest.TestCase):
         self.assertGreaterEqual(len(layout.operators()), 30)
         self.assertEqual(len(layout.calls("operator_menu_hold")), 9)
         self.assertEqual({c[1]["property"] for c in layout.calls("prop")},
-                         {"selection_filter", "select_crossing", "ref_coord_sys"})
+                         {"selection_filter", "select_crossing", "ref_coord_sys", "named_selection_set"})
 
     def test_draw_with_siblings(self):
         for name in SIBLINGS:
@@ -522,6 +524,8 @@ class ToolbarTest(unittest.TestCase):
         # The shown variant follows the setting, not only the last pick.
         ts.transform_pivot_point = 'INDIVIDUAL_ORIGINS'
         self.assertEqual(self.toolbar.shown_variant(bpy.context, 'PIVOT').key, 'PIVOT')
+        ts.transform_pivot_point = 'MEDIAN_POINT'
+        self.assertEqual(self.toolbar.shown_variant(bpy.context, 'PIVOT').key, 'SELECTION')
 
     def test_placeholder_variant_remembered(self):
         bpy.ops.mx_ui.toolbar_flyout(flyout='ALIGN', variant='NORMAL')

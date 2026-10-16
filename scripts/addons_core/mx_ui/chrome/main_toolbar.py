@@ -111,6 +111,10 @@ _STATE_PROPS = {
         ),
         default=True,
     ),
+    "named_selection_set": StringProperty(
+        name="Named Selection Sets",
+        description="Named selection set (not implemented yet)",
+    ),
     "ref_coord_sys": EnumProperty(
         name="Reference Coordinate System",
         description="Coordinate system used for transforms",
@@ -126,8 +130,9 @@ _STATE_PROPS = {
 
 class Variant:
     """
-    One button of a flyout. ``action`` is one of: ``('TOOL', tool_id)``, ``('SET', data_path, value)`` (an enum
-    in the context), ``('OP', idname, props)``, ``('EDITOR', editor)`` or ``('PH',)`` (not implemented yet).
+    One button of a flyout. ``action`` is one of: ``('TOOL', tool_id)``, ``('SET', data_path, value, *aliases)``
+    (an enum in the context; the variant is also shown as active for the ``aliases`` values),
+    ``('OP', idname, props)``, ``('EDITOR', editor)`` or ``('PH',)`` (not implemented yet).
     """
     __slots__ = ("key", "text", "icon", "action")
 
@@ -161,7 +166,7 @@ FLYOUTS = {
         Variant('PIVOT', "Use Pivot Point Center", 'PIVOT_INDIVIDUAL',
                 ('SET', "tool_settings.transform_pivot_point", 'INDIVIDUAL_ORIGINS')),
         Variant('SELECTION', "Use Selection Center", 'PIVOT_BOUNDBOX',
-                ('SET', "tool_settings.transform_pivot_point", 'BOUNDING_BOX_CENTER')),
+                ('SET', "tool_settings.transform_pivot_point", 'BOUNDING_BOX_CENTER', 'MEDIAN_POINT')),
         Variant('TRANSFORM', "Use Transform Coordinate Center", 'PIVOT_CURSOR',
                 ('SET', "tool_settings.transform_pivot_point", 'CURSOR')),
     ),
@@ -226,7 +231,7 @@ def variant_active(context, variant, tool_id=None):
     if action[0] == 'TOOL':
         return (tool_id or active_tool_id(context)) == action[1]
     if action[0] == 'SET':
-        return _resolve(context, action[1]) == action[2]
+        return _resolve(context, action[1]) in action[2:]
     return False
 
 
@@ -505,8 +510,10 @@ def draw_main_toolbar(layout, context):
     row = _group(layout)
     placeholder(row, "", icon='BOOKMARKS', feature="Edit Named Selection Sets")
     sub = row.row(align=True)
-    sub.ui_units_x = 6.0
-    sub.menu(TOPBAR_MT_mx_named_selection_sets.bl_idname)
+    sub.ui_units_x = 7.5
+    if wm_state is not None and hasattr(wm_state, "named_selection_set"):
+        sub.prop(wm_state, "named_selection_set", text="", placeholder="Create Selection Set")
+    sub.menu(TOPBAR_MT_mx_named_selection_sets.bl_idname, text="", icon='DOWNARROW_HLT')
 
     row = _group(layout)
     if menu_ops.has_operator("object.mx_mirror"):

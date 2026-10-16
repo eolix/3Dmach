@@ -207,6 +207,19 @@ def viewport_toggle(layout, context, path, text):
     return op
 
 
+class MXUI_OT_set_tool(Operator):
+    """Make this the active tool of the 3D viewport"""
+    bl_idname = "mx_ui.set_tool"
+    bl_label = "Set Tool"
+    bl_options = {'INTERNAL'}
+
+    # Menus use this instead of `wm.tool_set_by_id`, which Blender draws indented in menus (as a tool button).
+    name: StringProperty(name="Tool", options={'SKIP_SAVE'})
+
+    def execute(self, _context):
+        return bpy.ops.wm.tool_set_by_id(name=self.name, space_type='VIEW_3D')
+
+
 class MXUI_OT_redraw_views(Operator):
     """Redraw all viewports"""
     bl_idname = "mx_ui.redraw_views"
@@ -546,6 +559,7 @@ class OBJECT_OT_mx_camera_from_view(Operator):
 classes = (
     MXUI_OT_viewport_call,
     MXUI_OT_viewport_toggle,
+    MXUI_OT_set_tool,
     MXUI_OT_redraw_views,
     MXUI_OT_isolate_selection,
     MXUI_OT_active_shade,

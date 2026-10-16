@@ -136,7 +136,7 @@ def _phs(*texts):
 
 
 def _tool(tool_id, text):
-    return Op("wm.tool_set_by_id", text, name=tool_id, space_type='VIEW_3D')
+    return Op("mx_ui.set_tool", text, name=tool_id)
 
 
 # -----------------------------------------------------------------------------
