@@ -51,7 +51,7 @@ A 3ds Max user should be able to:
 2. **No Autodesk assets:** do not copy icons, images, splash screens, UI artwork, names or logos. Draw original icons. Describe the project as "Max-compatible", never as "3ds Max".
 3. **No Autodesk SDK code:** do not copy code or headers from the 3ds Max SDK. The `.max` reader is built from analysing real files (interoperability). If you want to use SDK documentation as a reference for something (e.g. class IDs, parameter meanings), flag it to the maintainer first.
 4. **Clean behaviour, original implementation:** replicate *behaviour* (what a feature does, hotkeys, workflow), never copied implementation.
-5. **Test files must be redistributable:** only commit `.max` files the maintainer or contributors made themselves, or that carry a licence allowing redistribution (e.g. CC0 / CC-BY).
+5. **Test files are never committed:** `.max` files and their reference exports stay in the gitignored `tests/corpus/local/` (or `$MX_CORPUS_DIR`). See `docs/decisions/0004-local-corpus.md`.
 
 ## 4. Architecture and repo layout
 
@@ -89,7 +89,7 @@ pylibs/maxfile/       # pure-Python .max parser, NO bpy dependency (not `libs/`:
   tests/              # pytest, runs without Blender
 
 tests/
-  corpus/             # redistributable .max test files + reference exports (see §6)
+  corpus/             # corpus tooling; the .max files themselves live in the gitignored corpus/local/ (see §6)
   blender/            # headless Blender tests (blender -b --python ...)
 
 docs/
@@ -122,7 +122,7 @@ Goal: a forked, buildable, testable repo that contributors can join.
 - [x] Headless test runner (`tests/blender/run_tests.py`): a script that runs every test in `tests/blender/` via `blender -b --factory-startup --python ...` and exits non-zero on failure.
 - [ ] CI (GitHub Actions or similar): build on at least one platform, run `pytest pylibs/maxfile` and `pytest tests/corpus`, run headless Blender tests.
 - [~] `README.md`, `CONTRIBUTING.md` (how to build, how to add a modifier/material/primitive decoder, how to submit test files), issue templates ("unsupported .max feature", "bug", "test file submission"). *(First draft of `docs/CONTRIBUTING.md`; README waits on the project name, issue templates on the hosting choice.)*
-- [x] Set up `tests/corpus/` with its manifest format (§6). *(`tests/corpus/README.md`, checked by `tests/corpus/check_manifest.py`.)*
+- [x] Set up `tests/corpus/` with its manifest format (§6). *(Local-only corpus: `tests/corpus/README.md`, `tests/corpus/corpus.py`.)*
 
 **Done when:** a new contributor can clone, build, run the tests and see them pass by following the docs.
 
@@ -300,23 +300,9 @@ Requires maintainer approval per item and a design note (§8) before any code. C
 
 ## 6. Test corpus
 
-Most `.max` work depends on real files. The agent cannot create them, so this is a maintainer/contributor task, and the agent's job is to make submission easy.
+Most `.max` work depends on real files. The agent cannot create them, so this is a maintainer/contributor task, and the agent's job is to make using them easy.
 
-Layout:
-
-```
-tests/corpus/
-  manifest.toml
-  <case_name>/
-    scene.max            # the source file
-    reference.obj        # exported from Max with the stack collapsed (geometry ground truth)
-    reference.fbx        # optional: hierarchy / transforms / cameras ground truth
-    reference.png        # optional: render from Max for visual comparison
-    LICENSE.txt          # redistribution licence for these files
-    notes.md             # Max version, renderer, what the case tests
-```
-
-`manifest.toml` records per case: Max version, renderer, features exercised, expected pass/fail status, licence and contributor. The exact format is in `tests/corpus/README.md`.
+The files are **never committed**. Every `*.max` file under the gitignored `tests/corpus/local/` (or `$MX_CORPUS_DIR`) is a test case; tests that need the corpus skip when it is empty. Each case can have reference exports next to it (`<name>.obj` / `reference.obj`: geometry with the stack collapsed; `<name>.fbx` / `reference.fbx`: hierarchy, transforms, cameras). An optional `manifest.toml` adds Max version, renderer, features exercised and expected pass/fail status. Details in `tests/corpus/README.md`.
 
 Automated checks per case:
 
@@ -350,13 +336,13 @@ Before any C++ change (Phase 3), write `docs/design/<feature>.md` covering: the 
 ## 10. Open questions for the maintainer
 
 - [ ] Project name (no Autodesk trademarks).
-- [ ] Base Blender LTS version. *Proposed: 5.2 LTS (`v5.2.2`), see `docs/decisions/0001-base-version.md`.*
+- [x] Base Blender LTS version. *Accepted: 5.2 LTS (`v5.2.2`), see `docs/decisions/0001-base-version.md`.*
 - [ ] Which renderers' materials matter most first (V-Ray, Corona, Arnold, Physical)?
 - [ ] Who can produce test files and reference exports from 3ds Max, and which Max versions?
 - [ ] Target platforms and order (proposed: Windows → Linux → macOS).
-- [ ] Repo hosting and CI provider. (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
-- [ ] Layout changes in `docs/decisions/0002-repo-layout.md` (`pylibs/maxfile`, `mx_common` in `scripts/modules/`): OK?
-- [ ] Should `.max` and other binary corpus files go through Git LFS? Best decided before the first case is committed, since moving files into LFS later rewrites history or leaves the old blobs in it.
+- [~] Repo hosting and CI provider. *(Hosting: GitHub, `eolix/3dmach`. CI provider still open.)* (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
+- [x] Layout changes in `docs/decisions/0002-repo-layout.md` (`pylibs/maxfile`, `mx_common` in `scripts/modules/`): OK? *(Yes.)*
+- [x] Should `.max` and other binary corpus files go through Git LFS? *(No: they are not committed at all, see `docs/decisions/0004-local-corpus.md`.)*
 - [ ] Rewrite rather than refactor `io_scene_max` (`docs/decisions/0003-io-scene-max-rewrite.md`): OK?
 - [ ] First corpus files: `docs/format/overview.md` ends with 13 format points to verify on real files. Even three or four tiny scenes (a box, an Editable Poly with two material IDs, a Multi/Sub-Object material, a parented hierarchy) saved from two different Max versions would cover most of them.
 - [ ] Licence of the prior-art importer: `io_scene_max` 1.9.2's source headers say GPL-2.0-or-later, its extension manifest says GPL-3.0-or-later. Either is compatible, but if we copy code from it we should know which applies (ask the author when contacting them, §2a).

@@ -1,6 +1,6 @@
 # 0002: Repository layout adjustments
 
-- Status: Proposed (waiting for maintainer review)
+- Status: Accepted
 - Date: 2026-10-16
 
 ## Context

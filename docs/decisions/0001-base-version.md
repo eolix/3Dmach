@@ -1,6 +1,6 @@
 # 0001: Base the fork on Blender 5.2 LTS
 
-- Status: Proposed (waiting for maintainer confirmation, see ROADMAP §10)
+- Status: Accepted
 - Date: 2026-10-16
 
 ## Context

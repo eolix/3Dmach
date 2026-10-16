@@ -2,8 +2,8 @@
 
 PROJECT_NAME is a fork of Blender that aims to look, feel and behave like a Max-style 3D application and to
 open `.max` files. [`ROADMAP.md`](../ROADMAP.md) has the plan, the hard constraints (§3) and the current status.
-Please read §3 before contributing: no Autodesk assets, no code or headers from the Max SDK, and only
-redistributable test files.
+Please read §3 before contributing: no Autodesk assets, no code or headers from the Max SDK, and `.max` test
+files are never committed.
 
 ## Where things live
 
@@ -15,7 +15,7 @@ redistributable test files.
 | `scripts/modules/mx_common/` | Helpers shared by the add-ons |
 | `pylibs/maxfile/` | `.max` parser, pure Python, no Blender dependency |
 | `tests/blender/` | Tests that run inside headless Blender |
-| `tests/corpus/` | Redistributable `.max` test files and reference exports |
+| `tests/corpus/` | Corpus tooling; your `.max` test files go in the gitignored `tests/corpus/local/` |
 | `docs/decisions/` | Architecture decision records |
 | `docs/format/` | What we know about the `.max` format |
 
@@ -36,10 +36,11 @@ python3 -m pip install pytest
 cd pylibs/maxfile && python3 -m pytest
 ```
 
-Corpus manifest checks:
+Corpus tooling tests, and a listing of your local corpus:
 
 ```sh
 python3 -m pytest tests/corpus
+python3 tests/corpus/corpus.py
 ```
 
 Tests inside Blender (a stock Blender 5.2 or a fork build):
@@ -83,8 +84,8 @@ if __name__ == "__main__":
 ## Adding support for a Max class
 
 To be written with the first decoder (ROADMAP Phase 2b/§7): one decoder module, one registry entry,
-one corpus case and tests.
+tests, checked against a local corpus case.
 
-## Submitting test files
+## Test files
 
 See [`tests/corpus/README.md`](../tests/corpus/README.md).
