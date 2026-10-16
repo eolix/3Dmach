@@ -5,8 +5,10 @@
 """
 The quad menu: Max's right-click menu with four quadrants (tools 1, tools 2, display, transform).
 
-It is a pie menu (``VIEW3D_MT_mx_quad``, opened with ``wm.call_menu_pie``) that only uses the four diagonal
-slots, each holding a boxed column of items, which gives the four-quadrant look around the cursor. The
+It is a pie menu (``VIEW3D_MT_mx_quad``, opened with ``wm.call_menu_pie``). The two upper quadrants sit side by
+side in the pie's North slot and the two lower ones in its South slot: Blender grows the North slot upwards and
+the South slot downwards from the cursor, so the four boxed columns meet at the cursor without overlapping
+(the diagonal slots are anchored at their top and overlap once the columns get long). The
 contents are data (``QUADS``), selected by the current mode, so they can be checked by tests and extended
 without touching the drawing code.
 
@@ -178,6 +180,8 @@ QUADS = {
 
 # Pie slot order is W, E, S, N, NW, NE, SW, SE: the first four stay empty.
 PIE_SLOTS = ('W', 'E', 'S', 'N', 'NW', 'NE', 'SW', 'SE')
+# Pie slot -> the quadrants drawn in it, left to right.
+QUADRANT_ROWS = (('S', ('SW', 'SE')), ('N', ('NW', 'NE')))
 
 
 def quads_for_mode(mode):
@@ -207,8 +211,8 @@ def draw_item(layout, item):
             setattr(props, key, value)
 
 
-def draw_quadrant(pie, title, items):
-    col = pie.column()
+def draw_quadrant(layout, title, items):
+    col = layout.column()
     box = col.box()
     inner = box.column(align=True)
     header = inner.row()
@@ -225,12 +229,17 @@ class VIEW3D_MT_mx_quad(Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
         quads = quads_for_mode(context.mode)
-        for slot in PIE_SLOTS:
-            quad = quads.get(slot)
-            if quad is None:
-                pie.separator()
-            else:
-                draw_quadrant(pie, *quad)
+        # Pie items fill the slots in PIE_SLOTS order: W and E stay empty, then S and N get a row of two quadrants.
+        pie.separator()
+        pie.separator()
+        for _slot, quadrants in QUADRANT_ROWS:
+            split = pie.split(factor=0.5)
+            for quadrant in quadrants:
+                quad = quads.get(quadrant)
+                if quad is None:
+                    split.column()
+                else:
+                    draw_quadrant(split, *quad)
 
 
 class VIEW3D_MT_mx_quad_convert(Menu):

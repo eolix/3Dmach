@@ -274,7 +274,9 @@ class RegistrationTest(unittest.TestCase):
         for mode, quads in quad_menu.QUADS.items():
             with self.subTest(mode=mode):
                 self.assertTrue(set(quads) <= {'NW', 'NE', 'SW', 'SE'})
-        self.assertEqual(quad_menu.PIE_SLOTS[4:], ('NW', 'NE', 'SW', 'SE'))
+        # Upper quadrants go in the North slot (grows up), lower ones in the South slot (grows down).
+        self.assertEqual(quad_menu.PIE_SLOTS[2:4], ('S', 'N'))
+        self.assertEqual(dict(quad_menu.QUADRANT_ROWS), {'S': ('SW', 'SE'), 'N': ('NW', 'NE')})
 
     def test_state_and_prefs(self):
         state = bpy.context.window_manager.mx_ui
@@ -392,8 +394,10 @@ class DrawTest(unittest.TestCase):
                 calls = menu.layout.calls()
                 self.assertEqual(len(menu.layout.calls("menu_pie")), 1)
                 self.assertTrue(menu.layout.calls("operator"))
-                # Four leading empty pie slots (W, E, S, N).
-                self.assertEqual([c[0] for c in calls[1:5]], ["separator"] * 4)
+                # W and E empty, then the South and North slots each split into two quadrants.
+                self.assertEqual([c[0] for c in calls[1:4]], ["separator", "separator", "split"])
+                self.assertEqual(len(menu.layout.calls("split")), 2)
+                self.assertEqual(len(menu.layout.calls("box")), len(quad_menu.quads_for_mode(mode)))
 
     def test_quad_items_valid(self):
         quad_menu = mx_ui().quad_menu
