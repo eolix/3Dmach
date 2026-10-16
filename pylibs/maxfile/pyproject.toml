@@ -8,13 +8,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maxfile"
-version = "0.0.1"
+version = "0.1.0"
 description = "Pure-Python reader for .max scene files (no Blender dependency)"
 readme = "README.md"
 license = "GPL-2.0-or-later"
 # Blender 5.2 bundles Python 3.13; 3.11 is the oldest with `tomllib`, used by the test tooling.
 requires-python = ">=3.11"
 dependencies = []
+
+[project.scripts]
+maxdump = "maxfile.dump:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

@@ -69,13 +69,14 @@ class ImportOperatorTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Cannot read"):
             bpy.ops.import_scene.mx_max(filepath=path)
 
-    def test_compound_file_not_implemented_yet(self):
-        # Only the container signature is checked so far; anything past it is reported, not imported.
+    def test_broken_container(self):
+        # A Compound File signature followed by garbage: a clear error, nothing imported.
         from maxfile import container
         path = os.path.join(self.tmpdir.name, "container_only.max")
         with open(path, "wb") as fh:
             fh.write(container.CFB_SIGNATURE + b"\0" * 504)
-        self.assertEqual(bpy.ops.import_scene.mx_max(filepath=path), {'CANCELLED'})
+        with self.assertRaisesRegex(RuntimeError, "Cannot import"):
+            bpy.ops.import_scene.mx_max(filepath=path)
 
     def test_objects_unchanged_on_failure(self):
         before = set(bpy.data.objects)
