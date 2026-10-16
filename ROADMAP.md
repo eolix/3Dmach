@@ -115,12 +115,12 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 Goal: a forked, buildable, testable repo that contributors can join.
 
-- [~] Fork Blender at the chosen LTS; record version in `docs/decisions/0001-base-version.md`. *(Proposed 5.2 LTS, `v5.2.2`; branch `mx/main`. Waiting for confirmation and a hosted remote.)*
+- [x] Fork Blender at the chosen LTS; record version in `docs/decisions/0001-base-version.md`. *(Proposed 5.2 LTS, `v5.2.2`; branch `mx/main`. Waiting for confirmation and a hosted remote.)* *(Branch `mx/main` at `v5.2.2` on `eolix/3Dmach`.)*
 - [ ] Confirm a clean build on Windows; document build steps in `docs/BUILDING.md`.
 - [ ] Rename app branding to `PROJECT_NAME` (window title, splash text, about box). Keep Blender credit and licence notices intact.
 - [x] Create the add-on and `pylibs/maxfile` skeletons from §4.2, with `pytest` wired up.
 - [x] Headless test runner (`tests/blender/run_tests.py`): a script that runs every test in `tests/blender/` via `blender -b --factory-startup --python ...` and exits non-zero on failure.
-- [ ] CI (GitHub Actions or similar): build on at least one platform, run `pytest pylibs/maxfile` and `pytest tests/corpus`, run headless Blender tests.
+- [~] CI (GitHub Actions or similar): build on at least one platform, run `pytest pylibs/maxfile` and `pytest tests/corpus`, run headless Blender tests. *(`.github/workflows/tests.yml` (pytest + headless tests on official 5.2.2) runs on every `mx/**` push; `build.yml` (full Linux x64 build) is manual and not yet verified.)*
 - [~] `README.md`, `CONTRIBUTING.md` (how to build, how to add a modifier/material/primitive decoder, how to submit test files), issue templates ("unsupported .max feature", "bug", "test file submission"). *(First draft of `docs/CONTRIBUTING.md`; README waits on the project name, issue templates on the hosting choice.)*
 - [x] Set up `tests/corpus/` with its manifest format (§6). *(Local-only corpus: `tests/corpus/README.md`, `tests/corpus/corpus.py`.)*
 
@@ -158,30 +158,30 @@ Build a full custom keymap. Verify each binding against Max's defaults (ask the 
 | Selection modifiers | Click = select; Ctrl+click = add; Alt+click = remove |
 | Undo / redo | Ctrl+Z / Ctrl+Y |
 
-- [ ] Viewport navigation matches Max, including orbit around selection/sub-object.
-- [ ] Transform tools follow Max's persistent-tool model: W/E/R choose a tool that stays active, rather than Blender's modal G/R/S operation.
-- [ ] Sub-object hotkeys map onto Blender edit-mode select modes (border = boundary-loop selection, element = linked selection) as a Phase-1 approximation.
-- [ ] Shift+drag clone with an options dialog (Copy → duplicate, Instance → linked duplicate; Reference → treat as Instance for now and note it).
-- [ ] Keymap is a selectable preset and the default in the fork.
+- [~] Viewport navigation matches Max, including orbit around selection/sub-object. *(`mx_keymap`; orbit around selection, zoom to mouse. Needs a hands-on check.)*
+- [x] Transform tools follow Max's persistent-tool model: W/E/R choose a tool that stays active, rather than Blender's modal G/R/S operation.
+- [x] Sub-object hotkeys map onto Blender edit-mode select modes (border = boundary-loop selection, element = linked selection) as a Phase-1 approximation. *(Approximations listed in `docs/keymap.md`.)*
+- [~] Shift+drag clone with an options dialog (Copy → duplicate, Instance → linked duplicate; Reference → treat as Instance for now and note it). *(Implemented; the drag-then-dialog flow still needs a hands-on check.)*
+- [x] Keymap is a selectable preset and the default in the fork. *(Preset `Max-Style`; factory default in `blendfile.cc`. See `docs/keymap.md`, decision 0005.)*
 
 #### 1b. UI (`mx_ui`)
 
-- [ ] **Quad menu** on right-click in the viewport, context-sensitive (object mode vs edit mode), with Max's four-quadrant layout (tools 1 / tools 2 / display / transform). Implement as a custom popup or pie-style menu.
-- [ ] **Command panel** docked on the right with tabs: Create, Modify, Hierarchy, Display, Utilities. (Motion tab omitted until animation is in scope.)
+- [~] **Quad menu** on right-click in the viewport, context-sensitive (object mode vs edit mode), with Max's four-quadrant layout (tools 1 / tools 2 / display / transform). Implement as a custom popup or pie-style menu. *(`VIEW3D_MT_mx_quad` (pie with four quadrant columns); opens like a Blender pie (doesn't stay open like Max's).)*
+- [x] **Command panel** docked on the right with tabs: Create, Modify, Hierarchy, Display, Utilities. (Motion tab omitted until animation is in scope.) *(In the Properties editor's Tool tab (decision 0007). Blender's own tool panels still show below it.)*
   - Create: primitive buttons (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere, Teapot-equivalent → use an original test shape, not the Utah teapot data unless its licence is confirmed), splines, lights, cameras.
   - Modify: object name + colour swatch, modifier list dropdown, stack view, parameters of the selected stack entry.
   - Hierarchy: pivot editing (affect pivot only / affect object only / center to object / align to world).
   - Display: hide/freeze by selection, category, etc.
-- [ ] **Freeze** (Max concept) → make objects unselectable and greyed out.
-- [ ] **Layer / Scene Explorer** panel mapped onto collections.
-- [ ] **Theme**: original dark-grey theme inspired by Max's palette. No copied assets.
-- [ ] **Startup file**: four-viewport layout (Top, Front, Left, Perspective), command panel on the right, time slider hidden (animation out of scope), Max-like grid.
-- [ ] **Units**: Max-style units setup dialog (display units + system unit scale) mapped to Blender scene units.
+- [x] **Freeze** (Max concept) → make objects unselectable and greyed out.
+- [x] **Layer / Scene Explorer** panel mapped onto collections.
+- [x] **Theme**: original dark-grey theme inspired by Max's palette. No copied assets. *(Applied on request (`preferences.mx_apply_theme`).)*
+- [~] **Startup file**: four-viewport layout (Top, Front, Left, Perspective), command panel on the right, time slider hidden (animation out of scope), Max-like grid. *(`screen.mx_max_layout` + applied to new files; checked in GUI screenshots. Viewports should zoom extents after building.)*
+- [x] **Units**: Max-style units setup dialog (display units + system unit scale) mapped to Blender scene units.
 
 #### 1c. Live primitives (Python first pass)
 
-- [ ] Max-style primitives that keep editable parameters (length, width, height, segments, etc.) after creation, shown in the Modify tab, until the user converts them to Editable Poly. First pass: implement with Geometry Nodes groups or a parameter property group plus regeneration; record the choice in a decision record.
-- [ ] Interactive creation by click-drag in the viewport (base, then height), as in Max.
+- [x] Max-style primitives that keep editable parameters (length, width, height, segments, etc.) after creation, shown in the Modify tab, until the user converts them to Editable Poly. First pass: implement with Geometry Nodes groups or a parameter property group plus regeneration; record the choice in a decision record. *(`mx_primitives`, decision 0006. Topology not yet checked against Max's own meshes.)*
+- [x] Interactive creation by click-drag in the viewport (base, then height), as in Max. *(Checked in the GUI with simulated mouse events.)*
 
 **Done when:** a Max user can navigate, select, create primitives, apply modifiers and transform objects using only Max habits, in the fork and as add-ons on stock Blender.
 
@@ -196,27 +196,27 @@ Goal: open real-world `.max` files with correct geometry, structure and material
 - [x] Decide: refactor it into the `libs/maxfile` / `mx_io_max` split, or rewrite using it as reference. Either way, keep attribution and licence headers. Record in a decision record. *(Proposed: rewrite, using it as a reference. See `docs/decisions/0003-io-scene-max-rewrite.md`.)*
 - [~] Contact the original author about collaborating or upstreaming fixes (maintainer will do this; the agent drafts the message). *(Draft in `docs/outreach/io_scene_max-author.md`.)*
 
-#### 2b. Container and scene graph (`libs/maxfile`)
+#### 2b. Container and scene graph (`pylibs/maxfile`)
 
-- [ ] Read the Compound File (OLE) container and list its streams.
-- [ ] Parse chunk trees; handle compressed streams where present.
-- [ ] Parse the class directory and DLL directory; build a registry mapping class IDs → names → decoder modules.
-- [ ] Parse scene nodes: name, parent, transform (node TM, object offset / pivot), visibility, hidden/frozen state, wire colour, layer.
-- [ ] Resolve references so instances share one data block.
+- [x] Read the Compound File (OLE) container and list its streams.
+- [x] Parse chunk trees; handle compressed streams where present.
+- [x] Parse the class directory and DLL directory; build a registry mapping class IDs → names → decoder modules.
+- [~] Parse scene nodes: name, parent, transform (node TM, object offset / pivot), visibility, hidden/frozen state, wire colour, layer. *(Name, parent, transform, object offset; visibility/hidden/frozen/wire colour/layer not decoded yet (need real files).)*
+- [x] Resolve references so instances share one data block.
 - [ ] Read scene units and convert to metres. Max and Blender are both Z-up; verify axis handling against reference exports.
-- [ ] `maxdump` CLI: `python -m maxfile.dump file.max` prints the scene tree, class list and any unknown classes. This is the main tool for contributors adding support for new classes.
+- [x] `maxdump` CLI: `python -m maxfile.dump file.max` prints the scene tree, class list and any unknown classes. This is the main tool for contributors adding support for new classes. *(`docs/format/maxdump.md`.)*
 
 #### 2c. Geometry
 
 Priority order (most common in real files first):
 
-- [ ] Editable Poly, including material IDs per face, smoothing groups, UV channels, vertex colours.
-- [ ] Editable Mesh.
-- [ ] Standard primitives → rebuilt as **live** primitives from Phase 1c (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere).
+- [~] Editable Poly, including material IDs per face, smoothing groups, UV channels, vertex colours. *(Decoded per the documented layouts; not yet verified on real files. Vertex colours not imported.)*
+- [~] Editable Mesh. *(Same: unverified on real files.)*
+- [~] Standard primitives → rebuilt as **live** primitives from Phase 1c (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere). *(Max's cached mesh is used when present; otherwise rebuilt live from the decoded parameters (segment counts not decoded yet).)*
 - [ ] Extended primitives (ChamferBox, ChamferCyl, …).
 - [ ] Splines: Line, Rectangle, Circle, Arc, Text → Blender curves, including renderable-spline thickness.
 - [ ] Groups → empties/collections with matching hierarchy.
-- [ ] Smoothing groups → sharp edges / custom normals. Pick the approach that matches Max shading most closely and document it.
+- [x] Smoothing groups → sharp edges / custom normals. Pick the approach that matches Max shading most closely and document it. *(Sharp edges + flat faces (`mx_io_max/smoothing.py`).)*
 
 #### 2d. Modifier stack
 
@@ -238,35 +238,35 @@ Each supported Max modifier becomes an equivalent Blender modifier (or Geometry 
 | Extrude / Lathe / Sweep (on splines) | Curve → mesh via Geometry Nodes |
 | Edit Poly | Bake if the file stores the result; otherwise import base object and report |
 
-- [ ] **Unsupported modifiers never block import.** Import the stack up to that point, add a placeholder, and list it in the import report.
-- [ ] Option: "Collapse stack on import" (bake everything) vs "Keep stack live" (default).
+- [x] **Unsupported modifiers never block import.** Import the stack up to that point, add a placeholder, and list it in the import report. *(`docs/format/modifiers.md`.)*
+- [x] Option: "Collapse stack on import" (bake everything) vs "Keep stack live" (default).
 
 #### 2e. Materials and textures (`mx_io_max/materials`)
 
 Translate to Principled BSDF node trees that render close to the original in Cycles and acceptably in EEVEE.
 
-- [ ] **Multi/Sub-Object** → Blender material slots assigned by face material ID. Highest priority: almost every real scene uses it.
-- [ ] Physical Material.
-- [ ] Standard (Legacy).
-- [ ] VRayMtl.
-- [ ] Corona Physical Material / Corona Legacy Material.
-- [ ] Arnold Standard Surface.
-- [ ] Blend / layered materials → Mix Shader.
-- [ ] Maps: Bitmap (path, tiling, offset, rotation, real-world scale, gamma), Falloff, Mix, Color Correction, Noise, Checker, Gradient, Normal Bump / VRayNormalMap / CoronaNormal, Bump.
-- [ ] Texture path resolution: absolute path → relative to `.max` → a user-chosen search folder → report missing.
-- [ ] Unknown materials → a placeholder material with the original diffuse colour if readable, named after the original class, and listed in the import report.
+- [~] **Multi/Sub-Object** → Blender material slots assigned by face material ID. Highest priority: almost every real scene uses it. *(Slots by material ID; the ID list itself isn't decoded yet.)*
+- [~] Physical Material. *(Converter done; parameter decoding needs real files.)*
+- [~] Standard (Legacy). *(Converter done; parameter decoding needs real files.)*
+- [~] VRayMtl. *(Converter done; only diffuse and reflection glossiness decoded so far.)*
+- [~] Corona Physical Material / Corona Legacy Material. *(Converter done; parameter decoding needs real files.)*
+- [~] Arnold Standard Surface. *(Converter done; sockets decoded per the documented layout.)*
+- [~] Blend / layered materials → Mix Shader. *(Node builder done; decoding not yet.)*
+- [~] Maps: Bitmap (path, tiling, offset, rotation, real-world scale, gamma), Falloff, Mix, Color Correction, Noise, Checker, Gradient, Normal Bump / VRayNormalMap / CoronaNormal, Bump. *(Node builders for all listed maps; only bitmap paths are decoded so far.)*
+- [x] Texture path resolution: absolute path → relative to `.max` → a user-chosen search folder → report missing. *(`materials/textures.py`.)*
+- [x] Unknown materials → a placeholder material with the original diffuse colour if readable, named after the original class, and listed in the import report.
 
 #### 2f. Cameras and lights
 
-- [ ] Physical Camera, Target/Free Camera (FOV, sensor, target → Track To constraint).
-- [ ] Photometric lights, V-Ray lights, Corona lights, Sun/Sky → Blender light types with approximate intensity conversion; document the formulas.
-- [ ] Environment / background colour and HDRI map → World.
+- [~] Physical Camera, Target/Free Camera (FOV, sensor, target → Track To constraint). *(Conversion done (`lights.py`, `docs/format/lights.md`); camera decoding needs real files.)*
+- [~] Photometric lights, V-Ray lights, Corona lights, Sun/Sky → Blender light types with approximate intensity conversion; document the formulas. *(Conversion done; light decoding needs real files.)*
+- [~] Environment / background colour and HDRI map → World. *(Conversion done; decoding needs real files.)*
 
 #### 2g. User experience
 
-- [ ] File → Import → `.max`, plus drag-and-drop into the viewport.
-- [ ] **Import report** panel after each import: objects, materials, modifiers imported; unsupported classes with counts; missing textures. Exportable as text, so users can attach it to bug reports.
-- [ ] Graceful failure: a corrupt or unsupported-version file gives a clear message, never a crash.
+- [x] File → Import → `.max`, plus drag-and-drop into the viewport.
+- [x] **Import report** panel after each import: objects, materials, modifiers imported; unsupported classes with counts; missing textures. Exportable as text, so users can attach it to bug reports. *(Text block "Import Report" + status-bar summary.)*
+- [x] Graceful failure: a corrupt or unsupported-version file gives a clear message, never a crash. *(Fuzzed: corrupt files raise `MaxFileError`, reported to the user.)*
 - [ ] Performance target: a 1-million-polygon scene imports in under 30 s on a mid-range machine (adjust after measuring).
 
 **Done when:** at least 80% of the test corpus (§6) imports with correct geometry (within tolerance of reference exports) and recognisable materials, and every unsupported feature is reported rather than silently dropped.
@@ -275,7 +275,7 @@ Translate to Principled BSDF node trees that render close to the original in Cyc
 
 Requires maintainer approval per item and a design note (§8) before any code. Candidates, in rough priority order:
 
-- [ ] **Editable Poly as a stack-aware object type**: sub-object editing that can sit in the modifier stack (Max's Edit Poly modifier), with sub-object selection passing up the stack.
+- [ ] **Editable Poly as a stack-aware object type**: sub-object editing that can sit in the modifier stack (Max's Edit Poly modifier), with sub-object selection passing up the stack. *(Design note: `docs/design/edit-poly-in-stack.md` (waiting for approval).)*
 - [ ] **Persistent sub-object selection** that survives mode switches and is visible to modifiers above it.
 - [ ] **Native live primitives** (replace the Phase 1c Python version if it proves too slow or fragile).
 - [ ] **Max transform behaviour**: reference coordinate systems (View, Screen, World, Parent, Local, Gimbal, Grid, Pick), pivot modes (pivot point center / selection center / transform coordinate center), constrained axes via gizmo planes.
@@ -335,15 +335,15 @@ Before any C++ change (Phase 3), write `docs/design/<feature>.md` covering: the 
 
 ## 10. Open questions for the maintainer
 
-- [ ] Project name (no Autodesk trademarks).
+- [ ] Project name (no Autodesk trademarks). *Repository is `3Dmach`: use that as the app name?*
 - [x] Base Blender LTS version. *Accepted: 5.2 LTS (`v5.2.2`), see `docs/decisions/0001-base-version.md`.*
 - [ ] Which renderers' materials matter most first (V-Ray, Corona, Arnold, Physical)?
 - [ ] Who can produce test files and reference exports from 3ds Max, and which Max versions?
 - [ ] Target platforms and order (proposed: Windows → Linux → macOS).
-- [~] Repo hosting and CI provider. *(Hosting: GitHub, `eolix/3dmach`. CI provider still open.)* (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
+- [x] Repo hosting and CI provider. *(GitHub `eolix/3Dmach`, GitHub Actions.)* (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
 - [x] Layout changes in `docs/decisions/0002-repo-layout.md` (`pylibs/maxfile`, `mx_common` in `scripts/modules/`): OK? *(Yes.)*
 - [x] Should `.max` and other binary corpus files go through Git LFS? *(No: they are not committed at all, see `docs/decisions/0004-local-corpus.md`.)*
-- [ ] Rewrite rather than refactor `io_scene_max` (`docs/decisions/0003-io-scene-max-rewrite.md`): OK?
+- [ ] Rewrite rather than refactor `io_scene_max` *(done that way)* (`docs/decisions/0003-io-scene-max-rewrite.md`): OK?
 - [ ] First corpus files: `docs/format/overview.md` ends with 13 format points to verify on real files. Even three or four tiny scenes (a box, an Editable Poly with two material IDs, a Multi/Sub-Object material, a parented hierarchy) saved from two different Max versions would cover most of them.
 - [ ] Licence of the prior-art importer: `io_scene_max` 1.9.2's source headers say GPL-2.0-or-later, its extension manifest says GPL-3.0-or-later. Either is compatible, but if we copy code from it we should know which applies (ask the author when contacting them, §2a).
 
