@@ -36,8 +36,9 @@ jobs:
       - name: corpus tooling
         run: python -m pytest -q tests/corpus
       - name: primitives geometry
-        if: hashFiles('tests/primitives/*.py') != ''
         run: python -m pytest -q tests/primitives
+      - name: importer helpers
+        run: python -m pytest -q tests/importer
 
   blender:
     runs-on: ubuntu-24.04
