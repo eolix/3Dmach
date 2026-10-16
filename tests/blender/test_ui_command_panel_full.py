@@ -439,9 +439,21 @@ class DrawTest(unittest.TestCase):
         self.assertTrue(command_panel.is_command_panel_space(space))
         ctx = types.SimpleNamespace(space_data=space, area=types.SimpleNamespace(type='PROPERTIES'))
         self.assertFalse(bpy.types.VIEW3D_PT_active_tool_duplicate.poll(ctx))
+        # Panels without a poll of their own (registered again with one).
+        options = bpy.types.VIEW3D_PT_tools_object_options
+        self.assertIn(options, panels)
+        self.assertFalse(options.poll(ctx))
         # An ordinary Properties editor keeps Blender's panels.
         setattr(space, next(n for n in command_panel.PROPERTIES_TABS if n != "show_properties_tool"), True)
         self.assertTrue(bpy.types.VIEW3D_PT_active_tool_duplicate.poll(ctx))
+        self.assertTrue(options.poll(ctx))
+        # Restored when the add-on is disabled, and hidden again when enabled.
+        command_panel._restore_blender_tool_panels()
+        self.assertFalse(hasattr(options, "poll"))
+        self.assertTrue(options.is_registered)
+        command_panel._hide_blender_tool_panels()
+        self.assertTrue(hasattr(options, "poll"))
+        self.assertTrue(bpy.types.VIEW3D_PT_tools_object_options_transform.is_registered)
 
     def test_layout_errors_are_caught(self):
         # The recording layout rejects unknown operators: makes sure the checks above mean something.

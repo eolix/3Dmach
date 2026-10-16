@@ -121,13 +121,16 @@ def _all_subclasses(cls):
         yield from _all_subclasses(sub)
 
 
+def _registered_panels():
+    return [cls for cls in set(_all_subclasses(Panel)) if getattr(cls, "is_registered", False)]
+
+
 def blender_tool_panels():
     """Blender's registered 3D viewport sidebar panels of the Tool category (not our own)."""
-    for cls in set(_all_subclasses(Panel)):
+    for cls in _registered_panels():
         if (getattr(cls, "bl_space_type", None) == 'VIEW_3D' and getattr(cls, "bl_region_type", None) == 'UI'
                 and getattr(cls, "bl_category", None) == "Tool" and not getattr(cls, "bl_parent_id", "")
-                and cls.__module__.startswith("bl_ui") and getattr(cls, "is_registered", False)
-                and hasattr(cls, "poll")):
+                and cls.__module__.startswith("bl_ui")):
             yield cls
 
 
@@ -135,24 +138,52 @@ def _hiding_poll(original):
     def poll(cls, context):
         if is_command_panel_space(getattr(context, "space_data", None)):
             return False
-        return original.__func__(cls, context)
+        return True if original is None else original.__func__(cls, context)
     return classmethod(poll)
 
 
+def _children(panels, parent):
+    """Sub-panels of ``parent`` (recursively), parents before children."""
+    result = []
+    for cls in panels:
+        if getattr(cls, "bl_parent_id", "") == parent.bl_rna.identifier:
+            result.append(cls)
+            result.extend(_children(panels, cls))
+    return result
+
+
+def _reregister(cls, set_poll):
+    """Blender only calls a panel's poll if it had one when registered: register it (and sub-panels) again."""
+    children = _children(_registered_panels(), cls)
+    for child in reversed(children):
+        bpy.utils.unregister_class(child)
+    bpy.utils.unregister_class(cls)
+    set_poll()
+    bpy.utils.register_class(cls)
+    for child in children:
+        bpy.utils.register_class(child)
+
+
 def _hide_blender_tool_panels():
-    for cls in blender_tool_panels():
+    for cls in list(blender_tool_panels()):
         own = cls.__dict__.get("poll")
-        original = own if own is not None else classmethod(getattr(cls, "poll").__func__)
-        cls.poll = _hiding_poll(original)
-        _wrapped_polls.append((cls, own))
+        had_poll = hasattr(cls, "poll")
+        original = own if own is not None else (classmethod(cls.poll.__func__) if had_poll else None)
+        if had_poll:
+            cls.poll = _hiding_poll(original)
+        else:
+            _reregister(cls, lambda cls=cls: setattr(cls, "poll", _hiding_poll(None)))
+        _wrapped_polls.append((cls, own, had_poll))
 
 
 def _restore_blender_tool_panels():
-    for cls, own in reversed(_wrapped_polls):
+    for cls, own, had_poll in reversed(_wrapped_polls):
         if own is not None:
             cls.poll = own
-        else:
+        elif had_poll:
             del cls.poll
+        elif cls.is_registered:
+            _reregister(cls, lambda cls=cls: delattr(cls, "poll"))
     _wrapped_polls.clear()
 
 

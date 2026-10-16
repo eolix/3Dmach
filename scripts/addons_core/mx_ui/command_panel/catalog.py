@@ -14,7 +14,7 @@ can generate a supported-features matrix, and the tests iterate them.
 Layout data: a :class:`Rollout` is a list of rows; a row is a tuple of cells drawn side by side (Max's
 two-buttons-per-row look). A cell is a :class:`Button`, a :class:`Prop` (a Blender property drawn as a
 field, owner resolved when drawing), a :class:`Label`, a :class:`Special` (a widget drawn by code) or
-``None`` (an empty cell).
+``None`` (an empty cell); a tuple of cells is drawn joined in one cell (Make Planar's X Y Z).
 """
 
 __all__ = (
@@ -366,6 +366,9 @@ def _rollout(prefix, key, title, rows, levels=(), default_closed=False):
     seen = set()
 
     def keyed(cell, index):
+        if isinstance(cell, tuple):
+            # A group of buttons drawn joined in one cell (e.g. Make Planar's X Y Z).
+            return tuple(keyed(sub, index * 100 + n) for n, sub in enumerate(cell))
         if not isinstance(cell, Button):
             return cell
         cell_key = "{:s}.{:s}".format(full, _key(cell.label) or str(index))
@@ -431,7 +434,8 @@ EDITABLE_POLY = (
     _rollout("EPOLY", "EDIT_GEOMETRY", "Edit Geometry", (
         (B("Repeat Last", "screen.repeat_last"),),
         (Label("Constraints"),),
-        (C("None"), C("Edge"), C("Face"), C("Normal")),
+        (C("None"), C("Edge")),
+        (C("Face"), C("Normal")),
         (Prop('TOOL_SETTINGS', "use_transform_correct_face_attributes", "Preserve UVs"),),
         (_m("Create", "mesh.edge_face_add", description="Create: a polygon (or edge) from the selected vertices"),
          _m("Collapse", "mesh.merge", props={"type": 'COLLAPSE'},
@@ -454,12 +458,12 @@ EDITABLE_POLY = (
             description="Tessellate: subdivide the selection",
             settings=_settings("mesh.subdivide", props={"smoothness": 0.0}))),
         (_m("Make Planar", "mesh.face_make_planar"),
-         _m("X", "transform.resize", props={"value": (0.0, 1.0, 1.0)},
-            description="Make the selection planar along the X axis"),
-         _m("Y", "transform.resize", props={"value": (1.0, 0.0, 1.0)},
-            description="Make the selection planar along the Y axis"),
-         _m("Z", "transform.resize", props={"value": (1.0, 1.0, 0.0)},
-            description="Make the selection planar along the Z axis")),
+         (_m("X", "transform.resize", props={"value": (0.0, 1.0, 1.0)},
+             description="Make the selection planar along the X axis"),
+          _m("Y", "transform.resize", props={"value": (1.0, 0.0, 1.0)},
+             description="Make the selection planar along the Y axis"),
+          _m("Z", "transform.resize", props={"value": (1.0, 1.0, 0.0)},
+             description="Make the selection planar along the Z axis"))),
         (P("View Align"), P("Grid Align")),
         (_m("Relax", "mesh.vertices_smooth", props={"factor": 0.5},
             settings=_settings("mesh.vertices_smooth", props={"factor": 0.5, "repeat": 1})),),
@@ -861,7 +865,9 @@ def iter_buttons(rows):
     """Every `Button` in ``rows`` (a rollout's rows), including Settings buttons."""
     for row in rows:
         for cell in row:
-            if isinstance(cell, Button):
+            if isinstance(cell, tuple):
+                yield from iter_buttons((cell,))
+            elif isinstance(cell, Button):
                 yield cell
                 if cell.settings is not None:
                     yield cell.settings

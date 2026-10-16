@@ -85,6 +85,10 @@ def draw_prop(layout, context, cell):
 def draw_cell(layout, context, cell, specials):
     if cell is None:
         layout.label(text="")
+    elif isinstance(cell, tuple):
+        sub = layout.row(align=True)
+        for item in cell:
+            draw_cell(sub, context, item, specials)
     elif isinstance(cell, catalog.Button):
         if cell.settings is not None:
             sub = layout.row(align=True)

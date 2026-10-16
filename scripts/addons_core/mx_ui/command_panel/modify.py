@@ -376,15 +376,21 @@ def _draw_sublevels(col, context, obj):
         row.label(text="", icon='BLANK1')
         row.label(text="", icon='BLANK1')
         number = utils.SUBOBJECT_LEVEL_NUMBERS[level]
-        draw_level_button(row, obj, level, text=label, depress=current == number)
+        # Like Max's stack: plain text entries, the current level highlighted.
+        draw_level_button(row, obj, level, text=label, depress=current == number, emboss=current == number)
 
 
-def draw_level_button(layout, obj, level, text="", icon='NONE', depress=False):
-    """A sub-object level button (meshes: through `mx_keymap` when enabled; curves: Edit Mode)."""
-    if obj.type == 'MESH' or utils.keymap_operator_available(utils.KEYMAP_SUBOBJECT_OPERATOR):
-        return utils.subobject_operator(layout, level, text=text, icon=icon, depress=depress)
-    props = layout.operator("object.mode_set", text=text, icon=icon, depress=depress)
-    props.mode = 'EDIT'
+def draw_level_button(layout, obj, level, text="", icon='NONE', depress=False, emboss=True):
+    """A sub-object level button (through `mx_keymap` when enabled; else meshes: our fallback, curves: Edit Mode)."""
+    if utils.keymap_operator_available(utils.KEYMAP_SUBOBJECT_OPERATOR):
+        props = layout.operator("mx_keymap.subobject_level", text=text, icon=icon, depress=depress, emboss=emboss)
+        props.level = utils.SUBOBJECT_LEVEL_NUMBERS[level]
+    elif obj.type == 'MESH':
+        props = layout.operator("object.mx_ui_subobject_level", text=text, icon=icon, depress=depress, emboss=emboss)
+        props.level = level
+    else:
+        props = layout.operator("object.mode_set", text=text, icon=icon, depress=depress, emboss=emboss)
+        props.mode = 'EDIT'
     return props
 
 
