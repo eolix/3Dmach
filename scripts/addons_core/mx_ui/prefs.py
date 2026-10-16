@@ -4,6 +4,8 @@
 
 """Add-on preferences and the optional add-on keymap entry for the quad menu."""
 
+import sys
+
 import bpy
 from bpy.props import BoolProperty, EnumProperty
 from bpy.types import AddonPreferences
@@ -76,6 +78,17 @@ def _update_keymap(_self, context):
     keymap_register(context)
 
 
+def _update_chrome(self, _context):
+    """Let the chrome modules switch what they changed outside their draw functions (see ``chrome_toggled``)."""
+    prefix = __package__ + ".chrome."
+    for name, mod in sorted(sys.modules.items()):
+        if name.startswith(prefix) and hasattr(mod, "chrome_toggled"):
+            mod.chrome_toggled(self.use_max_chrome)
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
+
+
 class MXUI_AddonPreferences(AddonPreferences):
     bl_idname = utils.ADDON_ID
 
@@ -127,9 +140,10 @@ class MXUI_AddonPreferences(AddonPreferences):
         name="Max-Style Interface Chrome",
         description=(
             "Replace Blender's menu bar, status bar and editor headers in Max layouts with Max's: menu bar, "
-            "main toolbar, ribbon, Scene Explorer, viewport labels, time slider and status line"
+            "main toolbar, Scene Explorer, viewport labels, ViewCube, time slider and status line"
         ),
         default=True,
+        update=_update_chrome,
     )
     show_top_menus: BoolProperty(
         name="Max-Style Menus",
@@ -169,6 +183,7 @@ class MXUI_AddonPreferences(AddonPreferences):
 
         col = layout.column(heading="Layout")
         col.prop(self, "use_max_layout_for_new_files", text="New Files")
+        col.prop(self, "use_max_chrome", text="Max Chrome")
         col.operator("screen.mx_max_layout", icon='VIEW3D')
 
         col = layout.column(heading="Theme")
