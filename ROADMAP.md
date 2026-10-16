@@ -95,6 +95,7 @@ tests/
 docs/
   decisions/          # architecture decision records
   format/             # what we've learned about the .max format
+  outreach/           # drafts of messages for the maintainer to send
   CONTRIBUTING.md
 ```
 
@@ -190,10 +191,10 @@ Goal: open real-world `.max` files with correct geometry, structure and material
 
 #### 2a. Prior art (do this first)
 
-- [ ] Study the existing GPL importer **"Import Autodesk MAX (.max)"** (`io_scene_max`, by Sebastian Sille / NRGSille, with Philippe Lagadec and Jens M. Plonka). It's on extensions.blender.org and in the Blender repos on projects.blender.org, licensed GPL-2.0-or-later.
-- [ ] Write `docs/format/overview.md` summarising what it reveals about the format: container, streams, chunk structure, class directory, how meshes and materials are stored, compression, version differences.
-- [ ] Decide: refactor it into the `libs/maxfile` / `mx_io_max` split, or rewrite using it as reference. Either way, keep attribution and licence headers. Record in a decision record.
-- [ ] Contact the original author about collaborating or upstreaming fixes (maintainer will do this; the agent drafts the message).
+- [x] Study the existing GPL importer **"Import Autodesk MAX (.max)"** (`io_scene_max`, by Sebastian Sille / NRGSille, with Philippe Lagadec and Jens M. Plonka). It's on extensions.blender.org and in the Blender repos on projects.blender.org, licensed GPL-2.0-or-later. *(Studied 1.9.2 from extensions.blender.org. Its source headers say GPL-2.0-or-later, its manifest GPL-3.0-or-later; see §10.)*
+- [x] Write `docs/format/overview.md` summarising what it reveals about the format: container, streams, chunk structure, class directory, how meshes and materials are stored, compression, version differences.
+- [x] Decide: refactor it into the `libs/maxfile` / `mx_io_max` split, or rewrite using it as reference. Either way, keep attribution and licence headers. Record in a decision record. *(Proposed: rewrite, using it as a reference. See `docs/decisions/0003-io-scene-max-rewrite.md`.)*
+- [~] Contact the original author about collaborating or upstreaming fixes (maintainer will do this; the agent drafts the message). *(Draft in `docs/outreach/io_scene_max-author.md`.)*
 
 #### 2b. Container and scene graph (`libs/maxfile`)
 
@@ -356,6 +357,8 @@ Before any C++ change (Phase 3), write `docs/design/<feature>.md` covering: the 
 - [ ] Repo hosting and CI provider. (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
 - [ ] Layout changes in `docs/decisions/0002-repo-layout.md` (`pylibs/maxfile`, `mx_common` in `scripts/modules/`): OK?
 - [ ] Should `.max` and other binary corpus files go through Git LFS? Best decided before the first case is committed, since moving files into LFS later rewrites history or leaves the old blobs in it.
+- [ ] Rewrite rather than refactor `io_scene_max` (`docs/decisions/0003-io-scene-max-rewrite.md`): OK?
+- [ ] First corpus files: `docs/format/overview.md` ends with 13 format points to verify on real files. Even three or four tiny scenes (a box, an Editable Poly with two material IDs, a Multi/Sub-Object material, a parented hierarchy) saved from two different Max versions would cover most of them.
 - [ ] Licence of the prior-art importer: `io_scene_max` 1.9.2's source headers say GPL-2.0-or-later, its extension manifest says GPL-3.0-or-later. Either is compatible, but if we copy code from it we should know which applies (ask the author when contacting them, §2a).
 
 ---
