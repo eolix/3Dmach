@@ -419,15 +419,9 @@ class DrawTest(unittest.TestCase):
                 cls.draw(menu, fake_context(active_object=cube, object=cube))
                 self.assertTrue(menu.layout.calls())
 
-    def test_topbar_and_object_properties(self):
-        topbar = mx_ui().topbar
+    def test_object_properties(self):
+        # The menu bar and main toolbar are tested in `test_ui_menus.py`.
         cube = add_cube()
-        holder = types.SimpleNamespace(layout=new_layout())
-        topbar.draw_top_menus(holder, fake_context())
-        self.assertEqual(len(holder.layout.calls("menu")), 3)
-        holder = types.SimpleNamespace(layout=new_layout())
-        topbar.draw_main_toolbar(holder, fake_context())
-        self.assertTrue(holder.layout.calls("operator"))
         mx_ui().quad_menu.draw_object_properties(new_layout(), cube)
 
     def test_preferences_and_units_dialog(self):
