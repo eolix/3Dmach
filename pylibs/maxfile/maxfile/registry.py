@@ -237,6 +237,8 @@ def _seed():
         (0x1065, "Rectangle", "shape", None),
         (0x1097, "Ellipse", "shape", None),
         (0x1999, "Circle", "shape", None),
+        # §5.2: "a class 0x3333 object holds an asset index" (bitmap paths in newer files).
+        (0x3333, "Asset reference? (holds an asset index per io_scene_max)", "map", None),
     )
     for class_id, name, category, superclass_id in seed:
         register_class(class_id, name, category, superclass_id)

@@ -41,19 +41,19 @@ from .transform import IDENTITY, Matrix4, Transform, matmul, quat_from_max
 
 SCENE_STREAM = "Scene"
 
-# Reference chunks (unverified, overview.md §3).
+# Reference chunks. Unverified (overview.md §3).
 CHUNK_REFS_ORDERED = 0x2034     # u32[] object indices, slot i = element i
 CHUNK_REFS_SPARSE = 0x2035      # u32 (unknown, skipped), then (u32 slot, u32 object index) pairs
 NULL_INDEX = 0xFFFFFFFF         # Presumably the explicit "no reference" (overview.md §3).
 
-# Node chunks (unverified, overview.md §4).
+# Node chunks. Unverified (overview.md §4).
 CHUNK_NODE_PARENT = 0x0960      # u32 parent object index, ...
 CHUNK_NODE_NAME = 0x0962        # UTF-16LE
 CHUNK_NODE_OFFSET_POS = 0x096A  # f32[3]
 CHUNK_NODE_OFFSET_ROT = 0x096B  # f32[4], file order (see transform.quat_from_max)
 CHUNK_NODE_OFFSET_SCALE = 0x096C  # f32[3+], first three used
 
-# Node reference slots (unverified, overview.md §4).
+# Node reference slots. Unverified (overview.md §4).
 SLOT_CONTROLLER = 0
 SLOT_OBJECT = 1
 SLOT_MATERIAL = 3
@@ -150,12 +150,34 @@ class DecodeContext:
             return None
         return self.scene.objects[obj.references[min(obj.references)]]
 
+    def refs(self, obj: SceneObject) -> list[tuple[int, SceneObject]]:
+        """All ``(slot, object)`` references of ``obj``, in slot order."""
+        return [(slot, self.scene.objects[index]) for slot, index in sorted(obj.references.items())]
+
     def decode(self, obj: SceneObject | None) -> Any:
-        """Decoded value of another object (None when absent or not decodable)."""
-        return self.scene.decode(obj)
+        """
+        Decoded value of another object (None when absent or not decodable).
+
+        A reference cycle or too deep nesting is reported in the warnings and gives None, so a decoder can treat
+        every referenced object the same way.
+        """
+        try:
+            return self.scene.decode(obj)
+        except DecodeError as ex:
+            self.warn("object {:d}: {:s}".format(obj.index, str(ex)))
+            return None
 
     def warn(self, message: str):
         self.scene.warnings.append(message)
+
+    @property
+    def cache(self) -> dict:
+        """Per-scene storage for helpers that aren't registered decoders (keyed by the helper)."""
+        return self.scene.cache
+
+    def asset_metadata(self):
+        """The file's asset metadata (:class:`maxfile.assets.AssetMetadata`), or None when not available."""
+        return self.scene.asset_metadata()
 
 
 class Scene:
@@ -177,6 +199,49 @@ class Scene:
         self._decoding: list[int] = []
         self._ctx = DecodeContext(self)
         self._node_by_index: dict[int, Node] = {}
+        self.cache: dict = {}
+        """Storage for decoding helpers (see :attr:`DecodeContext.cache`)."""
+        self._asset_loader = None   # Set by MaxFile: a callable returning the asset metadata.
+
+    def asset_metadata(self):
+        """The file's asset metadata (:class:`maxfile.assets.AssetMetadata`), or None when not available."""
+        return self._asset_loader() if self._asset_loader is not None else None
+
+    @property
+    def context(self) -> DecodeContext:
+        """A decode context, for calling helpers such as :func:`maxfile.objects.maps.read_map` directly."""
+        return self._ctx
+
+    def resolve_geometry(self, node: Node) -> tuple[SceneObject | None, list[SceneObject]]:
+        """
+        The base object of ``node`` and its modifiers, through any modifier-stack wrappers.
+
+        Returns ``(base, modifiers)``; ``modifiers`` lists the modifier objects from the top of the stack down
+        (unverified order, see :mod:`maxfile.objects.modifiers`). ``base`` is None when the node has no object or
+        the wrappers don't lead to one.
+        """
+        from .objects.modifiers import ModifierStack
+        obj = node.object
+        modifiers = []
+        seen = set()
+        while obj is not None:
+            if obj.index in seen:
+                self.warnings.append("node {:d}: modifier-stack wrappers form a cycle at object {:d}".format(
+                    node.index, obj.index))
+                return None, modifiers
+            seen.add(obj.index)
+            value = self.decode(obj)
+            if not isinstance(value, ModifierStack):
+                return obj, modifiers
+            # Outer wrappers sit above inner ones, so their modifiers come first.
+            modifiers.extend(self.objects[m.object_index] for m in value.modifiers)
+            obj = self.objects[value.base] if value.base is not None else None
+        return None, modifiers
+
+    def param_block(self, obj: SceneObject):
+        """``obj`` read as a generic parameter block (:class:`maxfile.objects.paramblock.ParamBlockData`)."""
+        from .objects.paramblock import read_param_block
+        return read_param_block(obj)
 
     def ref(self, obj: SceneObject, slot: int) -> SceneObject | None:
         """The object in reference ``slot`` of ``obj``, or None."""
