@@ -1078,5 +1078,16 @@ class KeymapTest(unittest.TestCase):
         self.assertEqual(prefs_mod.quad_binding_wanted(prefs), not prefs_mod.max_keyconfig_active())
 
 
+class PlaceholderTest(unittest.TestCase):
+
+    def test_placeholder(self):
+        self.assertEqual(bpy.ops.mx_ui.placeholder(feature="Teapot"), {'FINISHED'})
+        from mx_ui import placeholder
+        layout = new_layout()
+        placeholder.placeholder(layout, "Civil View")
+        self.assertEqual(layout.calls("operator")[0][1]["operator"], "mx_ui.placeholder")
+
+
 if __name__ == "__main__":
     _runner_util.main()
+

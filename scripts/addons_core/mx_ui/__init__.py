@@ -31,6 +31,7 @@ import bpy
 
 from . import (
     utils,
+    placeholder,
     state,
     prefs,
     modifier_map,
@@ -49,6 +50,7 @@ from . import command_panel
 # Registration order matters: property groups before the classes that point to them.
 _modules = (
     utils,
+    placeholder,
     state,
     prefs,
     modifier_map,
