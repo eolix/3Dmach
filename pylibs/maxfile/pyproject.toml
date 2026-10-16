@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maxfile"
+version = "0.0.1"
+description = "Pure-Python reader for .max scene files (no Blender dependency)"
+readme = "README.md"
+license = "GPL-2.0-or-later"
+# Blender 5.2 bundles Python 3.13; 3.11 is the oldest with `tomllib`, used by the test tooling.
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["maxfile*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
