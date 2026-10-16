@@ -199,7 +199,23 @@ def build_steps(window, screen):
     roles = yield from split_steps(window, screen, keep)
     yield
     configure_areas(window, screen, roles)
+    yield
+    zoom_extents_all(window, screen, roles)
     return roles
+
+
+def zoom_extents_all(window, screen, roles):
+    """Frame the whole scene in every viewport, as Max's viewports do on a new layout."""
+    if bpy.app.background:
+        return
+    for role in VIEWPORTS:
+        area = roles[role]
+        region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+        if region is None:
+            continue
+        with bpy.context.temp_override(window=window, screen=screen, area=area, region=region):
+            if bpy.ops.view3d.view_all.poll():
+                bpy.ops.view3d.view_all(center=False)
 
 
 # -----------------------------------------------------------------------------
