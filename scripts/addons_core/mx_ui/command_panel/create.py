@@ -3,8 +3,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Create tab: Geometry (live primitives from ``mx_primitives``), Shapes, Lights, Cameras, Helpers,
-plus the Name and Color rollout for the next object.
+Create tab: the category icons (Geometry, Shapes, Lights, Cameras, Helpers, Space Warps, Systems), the
+sub-category dropdown, the "Object Type" rollout with every Max button of that sub-category
+(``catalog.CREATE``), "Name and Color", and the parameters of the object just created.
+
+Buttons run through ``object.mx_create_type``, which starts the real operator and keeps the button
+highlighted like Max's creation modes: while an interactive creation runs (live primitives: click-drag in a
+viewport), then as long as the new object stays selected. Buttons without an implementation are placeholders.
 
 Shapes, lights, cameras and helpers are created here (``curve.mx_shape_add``, ``object.mx_create``) at the
 3D cursor, with Max-style names ("Omni001", "Rectangle001").
@@ -13,15 +18,15 @@ Shapes, lights, cameras and helpers are created here (``curve.mx_shape_add``, ``
 import math
 
 import bpy
-from bpy.props import EnumProperty
+from bpy.props import EnumProperty, StringProperty
 from bpy.types import Operator
 
 from .. import utils
-from ..state import CREATE_CATEGORIES
+from ..placeholder import placeholder
+from . import catalog, widgets
 
-_CATEGORY_LABELS = {item[0]: item[1] for item in CREATE_CATEGORIES}
-
-# Geometry > Standard Primitives, in Max's button order. The operator is provided by `mx_primitives`.
+# Geometry > Standard Primitives, in Max's button order. The operator is provided by `mx_primitives`
+# ('TEST_SHAPE' is our original stand-in for Max's Teapot, not the Utah teapot).
 PRIMITIVES = (
     ('BOX', "Box"),
     ('CONE', "Cone"),
@@ -31,11 +36,11 @@ PRIMITIVES = (
     ('TUBE', "Tube"),
     ('TORUS', "Torus"),
     ('PYRAMID', "Pyramid"),
-    ('TEST_SHAPE', "Test Shape"),
+    ('TEST_SHAPE', "Teapot"),
     ('PLANE', "Plane"),
 )
 
-# Shapes > Splines.
+# Shapes: Splines and Extended Splines.
 SHAPES = (
     ('LINE', "Line"),
     ('RECTANGLE', "Rectangle"),
@@ -47,7 +52,24 @@ SHAPES = (
     ('STAR', "Star"),
     ('TEXT', "Text"),
     ('HELIX', "Helix"),
+    ('EGG', "Egg"),
+    ('WRECTANGLE', "WRectangle"),
+    ('CHANNEL', "Channel"),
+    ('ANGLE', "Angle"),
+    ('TEE', "Tee"),
+    ('WIDE_FLANGE', "Wide Flange"),
 )
+
+# Extended Splines outlines (closed polylines, about 2 x 1.5 units).
+_EXTENDED_SPLINES = {
+    'CHANNEL': ((-1.0, -0.75), (1.0, -0.75), (1.0, -0.55), (-0.8, -0.55), (-0.8, 0.55), (1.0, 0.55),
+                (1.0, 0.75), (-1.0, 0.75)),
+    'ANGLE': ((-1.0, -0.75), (1.0, -0.75), (1.0, -0.55), (-0.8, -0.55), (-0.8, 0.75), (-1.0, 0.75)),
+    'TEE': ((-1.0, 0.75), (1.0, 0.75), (1.0, 0.55), (0.1, 0.55), (0.1, -0.75), (-0.1, -0.75), (-0.1, 0.55),
+            (-1.0, 0.55)),
+    'WIDE_FLANGE': ((-1.0, -0.75), (1.0, -0.75), (1.0, -0.55), (0.1, -0.55), (0.1, 0.55), (1.0, 0.55),
+                    (1.0, 0.75), (-1.0, 0.75), (-1.0, 0.55), (-0.1, 0.55), (-0.1, -0.55), (-1.0, -0.55)),
+}
 
 # Lights, cameras and helpers: (kind, button label, Max base name, group, available).
 OBJECTS = (
@@ -231,21 +253,36 @@ def build_shape(kind, curve):
                               math.sin(2.0 * math.pi * turns * i / steps),
                               2.0 * i / steps) for i in range(steps + 1)], cyclic=False)
         return
+    elif kind == 'EGG':
+        # Max's Egg: an egg outline (narrower at the top) with its inner outline.
+        steps = 48
+        for scale in (1.0, 0.9):
+            coords = []
+            for i in range(steps):
+                t = 2.0 * math.pi * i / steps
+                y = math.cos(t)
+                coords.append((scale * 0.7 * math.sin(t) * (1.0 - 0.15 * y), scale * y))
+            _poly_spline(curve, coords, cyclic=True)
+    elif kind == 'WRECTANGLE':
+        _poly_spline(curve, ((-1.0, -0.75), (1.0, -0.75), (1.0, 0.75), (-1.0, 0.75)), cyclic=True)
+        _poly_spline(curve, ((-0.8, -0.55), (0.8, -0.55), (0.8, 0.55), (-0.8, 0.55)), cyclic=True)
+    elif kind in _EXTENDED_SPLINES:
+        _poly_spline(curve, _EXTENDED_SPLINES[kind], cyclic=True)
     else:
         raise ValueError("Unknown shape {!r}".format(kind))
     curve.dimensions = '2D'
 
 
 def create_shape(context, kind):
-    label = dict(SHAPES)[kind]
+    base = dict(SHAPES)[kind].replace(" ", "")
     if kind == 'TEXT':
-        data = bpy.data.curves.new(label, 'FONT')
+        data = bpy.data.curves.new(base, 'FONT')
         data.body = "Max Text"
     else:
-        data = bpy.data.curves.new(label, 'CURVE')
+        data = bpy.data.curves.new(base, 'CURVE')
         data.dimensions = '3D'
         build_shape(kind, data)
-    return _finish(context, bpy.data.objects.new(label, data), label)
+    return _finish(context, bpy.data.objects.new(base, data), base)
 
 
 # -----------------------------------------------------------------------------
@@ -299,92 +336,267 @@ class CURVE_OT_mx_shape_add(Operator):
 
 
 # -----------------------------------------------------------------------------
+# Create buttons: ``object.mx_create_type`` and Max's highlighted creation mode
+
+def subcategory_prop(category):
+    """Name of the state property holding the sub-category chosen for ``category``."""
+    return "create_sub_" + category.lower()
+
+
+def current_subcategory(state, category=None):
+    cat = catalog.CATEGORY_BY_KEY[category or state.create_category]
+    key = getattr(state, subcategory_prop(cat.key), None)
+    return next((sub for sub in cat.subcategories if sub.key == key), cat.subcategories[0])
+
+
+def button_available(button):
+    """Implemented, and the add-on providing its operator (if any) is enabled."""
+    if not button.implemented:
+        return False
+    if button.requires == catalog.PRIMITIVES:
+        return utils.primitives_operator_available()
+    return True
+
+
+def is_highlighted(state, button, obj):
+    """Max keeps the creation type's button active while creating and while the new object is selected."""
+    if not button.key or state.create_active != button.key:
+        return False
+    return state.create_running or (obj is not None and obj.name == state.create_object)
+
+
+# Modal creation operators watched by `_watch_creation` (identifiers as `Window.modal_operators` reports them).
+_MODAL_CREATORS = {"MESH_OT_mx_primitive_add", "mesh.mx_primitive_add"}
+_watch = {"previous": ""}
+
+
+def _active_object_any_window():
+    wm = bpy.context.window_manager
+    for window in wm.windows:
+        return window.view_layer.objects.active
+    return None
+
+
+def _creation_running():
+    wm = bpy.context.window_manager
+    return any(op.bl_idname in _MODAL_CREATORS for window in wm.windows for op in window.modal_operators)
+
+
+def _watch_creation():
+    """Timer: when the interactive creation ends, keep the button lit for the new object, or turn it off."""
+    state = utils.get_state()
+    if state is None:
+        return None
+    if _creation_running():
+        return 0.25
+    state.create_running = False
+    obj = _active_object_any_window()
+    if obj is not None and obj.name != _watch["previous"]:
+        state.create_object = obj.name
+    else:
+        state.create_active = ""
+    from .edit_commands import tag_redraw_panels
+    tag_redraw_panels()
+    return None
+
+
+def run_create_button(context, button, execution='EXEC_DEFAULT'):
+    """Run a Create button's operator. Returns the operator's result set; raises ValueError when impossible."""
+    from .edit_commands import operator_function, push_undo
+    if not button.implemented:
+        raise ValueError("{:s} is not implemented yet".format(button.label))
+    if not button_available(button):
+        raise ValueError("{:s} needs the Max-Style Primitives add-on".format(button.label))
+    obj = context.active_object
+    if button.needs_selection:
+        if obj is None or obj.type != 'MESH':
+            raise ValueError("{:s}: select a mesh object first".format(button.label))
+    elif obj is not None and obj.mode != 'OBJECT':
+        with context.temp_override(**utils.object_context_override(context, obj)):
+            bpy.ops.object.mode_set(mode='OBJECT')
+    func = operator_function(button.operator)
+    try:
+        return func(execution, push_undo(), **button.props)
+    except RuntimeError as ex:
+        raise ValueError(str(ex).replace("Error: ", "").strip()) from ex
+
+
+class OBJECT_OT_mx_create_type(Operator):
+    """Create an object of this type"""
+    bl_idname = "object.mx_create_type"
+    bl_label = "Create"
+    bl_options = {'INTERNAL'}
+
+    entry: StringProperty(name="Object Type", options={'SKIP_SAVE'})
+
+    @classmethod
+    def description(cls, _context, properties):
+        button = catalog.CREATE_BY_KEY.get(properties.entry)
+        if button is None:
+            return None
+        if button.description:
+            return button.description
+        if button.requires == catalog.PRIMITIVES:
+            return "{:s}: click-drag in a viewport to create it, like Max (live parameters)".format(button.label)
+        return "Create a {:s} at the 3D cursor".format(button.label)
+
+    def _run(self, context, execution):
+        button = catalog.CREATE_BY_KEY.get(self.entry)
+        if button is None:
+            self.report({'ERROR'}, "Unknown object type {!r}".format(self.entry))
+            return {'CANCELLED'}
+        state = utils.get_state(context)
+        previous = context.active_object
+        _watch["previous"] = previous.name if previous is not None else ""
+        try:
+            result = run_create_button(context, button, execution)
+        except ValueError as ex:
+            self.report({'WARNING'}, str(ex))
+            return {'CANCELLED'}
+        if state is None:
+            return {'FINISHED'}
+        if 'RUNNING_MODAL' in result:
+            state.create_active = button.key
+            state.create_running = True
+            state.create_object = ""
+            if not bpy.app.timers.is_registered(_watch_creation):
+                bpy.app.timers.register(_watch_creation, first_interval=0.25)
+            return {'FINISHED'}
+        if 'FINISHED' not in result:
+            return {'CANCELLED'}
+        obj = context.view_layer.objects.active
+        state.create_active = button.key
+        state.create_running = False
+        state.create_object = obj.name if obj is not None else ""
+        return {'FINISHED'}
+
+    def execute(self, context):
+        return self._run(context, 'EXEC_DEFAULT')
+
+    def invoke(self, context, _event):
+        button = catalog.CREATE_BY_KEY.get(self.entry)
+        interactive = button is not None and button.requires == catalog.PRIMITIVES
+        return self._run(context, 'INVOKE_DEFAULT' if interactive else 'EXEC_DEFAULT')
+
+
+# -----------------------------------------------------------------------------
 # Drawing
 
-def _button_grid(layout):
-    return layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+# Max's "Creation Method" choices for the primitives that have one.
+_CREATION_METHODS = {
+    'BOX': ("Cube", "Box"),
+    'PLANE': ("Rectangle", "Square"),
+    'PYRAMID': ("Base/Apex", "Center"),
+}
 
 
-def draw_geometry(layout, _context):
-    available = utils.primitives_operator_available()
-    header, body = layout.panel("MXUI_create_object_type")
-    header.label(text="Object Type")
+def draw_create_button(layout, context, button, state):
+    if not button.implemented:
+        placeholder(layout, button.label)
+        return
+    cell = layout.row()
+    cell.enabled = button_available(button)
+    depress = is_highlighted(state, button, context.active_object)
+    cell.operator(OBJECT_OT_mx_create_type.bl_idname, text=button.label, depress=depress).entry = button.key
+
+
+def draw_object_type(layout, context, state, category, sub):
+    body = widgets.rollout(layout, "create_object_type_" + category.lower(), "Object Type")
     if body is None:
         return
-    body.label(text="Standard Primitives")
-    grid = _button_grid(body)
-    grid.enabled = available
-    icons = getattr(utils.primitives_module(), "ICONS", {})
-    for kind, label in PRIMITIVES:
-        if available:
-            props = grid.operator(utils.PRIMITIVE_OPERATOR_IDNAME, text=label, icon=icons.get(kind, 'NONE'))
-            props.kind = kind
-        else:
-            grid.label(text=label)
-    if not available:
+    row = body.row()
+    row.alignment = 'CENTER'
+    placeholder(row, "AutoGrid", icon='CHECKBOX_DEHLT', emboss=False)
+    grid = widgets.two_columns(body)
+    for button in sub.buttons:
+        draw_create_button(grid, context, button, state)
+    if any(button.requires == catalog.PRIMITIVES for button in sub.buttons) and \
+            not utils.primitives_operator_available():
         col = body.column()
         col.active = False
         col.label(text="Enable the Max-Style Primitives add-on", icon='INFO')
         col.label(text="for live primitives.")
 
 
-def draw_shapes(layout, _context):
-    header, body = layout.panel("MXUI_create_object_type_shapes")
-    header.label(text="Object Type")
-    if body is None:
-        return
-    body.label(text="Splines")
-    grid = _button_grid(body)
-    for kind, label in SHAPES:
-        grid.operator(CURVE_OT_mx_shape_add.bl_idname, text=label).kind = kind
-
-
-def draw_objects(layout, _context, category):
-    header, body = layout.panel("MXUI_create_object_type_" + category.lower())
-    header.label(text="Object Type")
-    if body is None:
-        return
-    for group in CATEGORY_GROUPS[category]:
-        body.label(text=GROUP_LABELS[group])
-        grid = _button_grid(body)
-        for kind, label, _base, item_group, available in OBJECTS:
-            if item_group != group:
-                continue
-            cell = grid.row()
-            cell.enabled = available
-            cell.operator(OBJECT_OT_mx_create.bl_idname, text=label).kind = kind
-
-
 def draw_name_and_color(layout, context):
     state = utils.get_state(context)
-    header, body = layout.panel("MXUI_create_name_color")
-    header.label(text="Name and Color")
+    body = widgets.rollout(layout, "create_name_color", "Name and Color")
     if body is None:
         return
+    obj = context.active_object
     row = body.row(align=True)
+    if obj is not None and is_highlighted(state, catalog.CREATE_BY_KEY.get(state.create_active, catalog.P("")),
+                                          obj):
+        # Like Max: right after creation, the rollout shows (and edits) the new object.
+        row.prop(obj, "name", text="")
+        sub = row.row(align=True)
+        sub.ui_units_x = 1.5
+        sub.prop(obj, "color", text="")
+        return
     row.prop(state, "next_name", text="", placeholder="Automatic")
     sub = row.row(align=True)
-    sub.ui_units_x = 2.0
+    sub.ui_units_x = 1.5
     sub.prop(state, "next_color", text="")
+
+
+def draw_created_object(layout, context, state):
+    """Max shows the new object's creation rollouts while its creation type is active."""
+    obj = context.active_object
+    button = catalog.CREATE_BY_KEY.get(state.create_active)
+    if button is None or obj is None or not is_highlighted(state, button, obj):
+        return
+    if button.requires == catalog.PRIMITIVES:
+        kind = button.props.get("kind")
+        methods = _CREATION_METHODS.get(kind, ("Edge", "Center"))
+        body = widgets.rollout(layout, "create_creation_method", "Creation Method")
+        if body is not None:
+            row = body.row()
+            for method in methods:
+                placeholder(row, method, icon='RADIOBUT_OFF', emboss=False)
+        body = widgets.rollout(layout, "create_keyboard_entry", "Keyboard Entry", default_closed=True)
+        if body is not None:
+            placeholder(body, "Create", feature="Keyboard Entry")
+    if obj.name != state.create_object:
+        return
+    from . import modify
+    body = widgets.rollout(layout, "create_parameters", "Parameters")
+    if body is not None:
+        modify.draw_base_parameters(body, context, obj, editable_poly=False)
 
 
 def draw(layout, context):
     state = utils.get_state(context)
     row = layout.row(align=True)
+    row.scale_y = 1.1
     row.prop(state, "create_category", expand=True, icon_only=True)
     category = state.create_category
-    layout.label(text=_CATEGORY_LABELS[category])
-
-    if category == 'GEOMETRY':
-        draw_geometry(layout, context)
-    elif category == 'SHAPES':
-        draw_shapes(layout, context)
-    else:
-        draw_objects(layout, context, category)
+    sub = current_subcategory(state, category)
+    layout.prop(state, subcategory_prop(category), text="")
+    draw_object_type(layout, context, state, category, sub)
     draw_name_and_color(layout, context)
+    draw_created_object(layout, context, state)
+
+
+def register():
+    from ..state import MXUI_State
+    for cat in catalog.CREATE:
+        setattr(MXUI_State, subcategory_prop(cat.key), EnumProperty(
+            name=cat.label + " Type",
+            description="{:s} sub-category".format(cat.label),
+            items=[(sub.key, sub.label, "") for sub in cat.subcategories],
+        ))
+
+
+def unregister():
+    from ..state import MXUI_State
+    for cat in catalog.CREATE:
+        delattr(MXUI_State, subcategory_prop(cat.key))
+    if bpy.app.timers.is_registered(_watch_creation):
+        bpy.app.timers.unregister(_watch_creation)
 
 
 classes = (
     OBJECT_OT_mx_create,
     CURVE_OT_mx_shape_add,
+    OBJECT_OT_mx_create_type,
 )

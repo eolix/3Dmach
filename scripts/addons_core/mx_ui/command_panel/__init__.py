@@ -12,12 +12,13 @@ Properties editor is a full-height, per-window editor like Max's command panel, 
 would repeat it in every viewport. The Max Layout hides the editor's other tabs, navigation bar and header,
 so it only shows the command panel. See ``docs/decisions/0007-max-ui.md``.
 
-Each tab is a module with a ``draw(layout, context)`` function; rollouts use ``layout.panel()``.
+Each tab is a module with a ``draw(layout, context)`` function; rollouts use ``layout.panel()``. What the
+tabs contain (every button, and whether it is implemented or a placeholder) is data in ``catalog``.
 """
 
 if "bpy" in locals():
     import importlib
-    for _mod in _tab_modules:
+    for _mod in _modules:
         importlib.reload(_mod)
     del _mod
 
@@ -26,21 +27,19 @@ from bpy.types import Panel
 
 from .. import utils
 from ..state import COMMAND_TABS
-from . import create, modify, hierarchy, display, utilities
+from . import catalog, widgets, edit_commands, create, modify, hierarchy, motion, display, utilities
 
-_tab_modules = (create, modify, hierarchy, display, utilities)
+_modules = (catalog, widgets, edit_commands, create, modify, hierarchy, motion, display, utilities)
 
 TAB_DRAW = {
     'CREATE': create.draw,
     'MODIFY': modify.draw,
     'HIERARCHY': hierarchy.draw,
+    'MOTION': motion.draw,
     'DISPLAY': display.draw,
     'UTILITIES': utilities.draw,
 }
 assert set(TAB_DRAW) == {tab[0] for tab in COMMAND_TABS}
-
-# Below this region width (in UI units) the tab row shows icons only.
-_TAB_TEXT_MIN_WIDTH = 15.0
 
 PROPERTIES_TABS = [prop.identifier for prop in bpy.types.SpaceProperties.bl_rna.properties
                    if prop.identifier.startswith("show_properties_")]
@@ -61,13 +60,11 @@ def setup_command_panel_space(space):
     space.context = 'TOOL'
 
 
-def draw_tab_row(layout, context, state):
-    region = context.region
-    ui_scale = context.preferences.system.ui_scale or 1.0  # 0 in background mode.
-    ui_units = region.width / (20.0 * ui_scale) if region else 100.0
+def draw_tab_row(layout, _context, state):
+    # Max's tab row: icons only (the tooltips name the tabs).
     row = layout.row(align=True)
-    row.scale_y = 1.2
-    row.prop(state, "command_tab", expand=True, icon_only=ui_units < _TAB_TEXT_MIN_WIDTH)
+    row.scale_y = 1.3
+    row.prop(state, "command_tab", expand=True, icon_only=True)
 
 
 def draw_command_panel(layout, context):
@@ -106,6 +103,18 @@ class VIEW3D_PT_mx_command_panel(Panel):
 
 
 classes = (
-    *(cls for mod in _tab_modules for cls in getattr(mod, "classes", ())),
+    *(cls for mod in _modules for cls in getattr(mod, "classes", ())),
     VIEW3D_PT_mx_command_panel,
 )
+
+
+def register():
+    for mod in _modules:
+        if hasattr(mod, "register"):
+            mod.register()
+
+
+def unregister():
+    for mod in reversed(_modules):
+        if hasattr(mod, "unregister"):
+            mod.unregister()

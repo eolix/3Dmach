@@ -319,13 +319,12 @@ class DrawTest(unittest.TestCase):
                 with self.subTest(tab=tab):
                     self.assertTrue(self.draw_panel().calls())
 
-    def test_tab_row_icons_only_when_narrow(self):
-        layout = self.draw_panel(region=types.SimpleNamespace(width=150, alignment='RIGHT'))
-        tab_prop = [c for c in layout.calls("prop") if c[1]["property"] == "command_tab"][0]
-        self.assertTrue(tab_prop[1]["icon_only"])
-        layout = self.draw_panel(region=types.SimpleNamespace(width=600, alignment='RIGHT'))
-        tab_prop = [c for c in layout.calls("prop") if c[1]["property"] == "command_tab"][0]
-        self.assertFalse(tab_prop[1]["icon_only"])
+    def test_tab_row_icons_only(self):
+        # Max's tab row shows icons only, whatever the width.
+        for width in (150, 600):
+            layout = self.draw_panel(region=types.SimpleNamespace(width=width, alignment='RIGHT'))
+            tab_prop = [c for c in layout.calls("prop") if c[1]["property"] == "command_tab"][0]
+            self.assertTrue(tab_prop[1]["icon_only"])
 
     def test_modify_stack_for_each_entry_type(self):
         from mx_ui.command_panel import modify
@@ -379,9 +378,10 @@ class DrawTest(unittest.TestCase):
         if mx_ui().utils.primitives_operator_available():
             self.skipTest("mx_primitives is enabled")
         layout = new_layout()
-        create.draw_geometry(layout, fake_context())
+        create.draw(layout, fake_context())
+        texts = [c[1].get("text") for c in layout.calls("operator")]
+        self.assertIn("Box", texts)
         labels = [c[1].get("text") for c in layout.calls("label")]
-        self.assertIn("Box", labels)
         self.assertTrue(any("Primitives add-on" in (text or "") for text in labels))
 
     def test_quad_menu_draw(self):
@@ -898,7 +898,7 @@ class CreateTest(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertEqual(bpy.ops.curve.mx_shape_add(kind=kind), {'FINISHED'})
                 obj = bpy.context.view_layer.objects.active
-                self.assertEqual(obj.name, label + "001")
+                self.assertEqual(obj.name, label.replace(" ", "") + "001")
                 if kind != 'TEXT':
                     self.assertTrue(obj.data.splines)
         self.assertEqual(len(bpy.data.objects["Donut001"].data.splines), 2)
@@ -1035,9 +1035,11 @@ class SiblingAddonsTest(unittest.TestCase):
     def test_create_and_modify_live_primitive(self):
         from mx_ui.command_panel import create, modify
         layout = new_layout()
-        create.draw_geometry(layout, fake_context())
-        kinds = [c for c in layout.calls("operator") if c[1]["operator"] == "mesh.mx_primitive_add"]
-        self.assertEqual(len(kinds), len(create.PRIMITIVES))
+        bpy.context.window_manager.mx_ui.create_category = 'GEOMETRY'
+        create.draw(layout, fake_context())
+        kinds = [c for c in layout.calls("operator") if c[1]["operator"] == "object.mx_create_type"]
+        # The Standard Primitives plus TextPlus.
+        self.assertEqual(len(kinds), len(create.PRIMITIVES) + 1)
         box = self.add_box()
         self.assertTrue(mx_ui().utils.is_live_primitive(box))
         self.assertEqual(modify.base_label(box), "Box")

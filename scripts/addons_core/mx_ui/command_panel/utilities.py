@@ -2,13 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Utilities tab: Reset XForm, Collapse, Measure, Units Setup, Assign Random Wire Colors."""
+"""
+Utilities tab: the Utilities rollout (More..., Sets, Configure Button Sets and the utility buttons, in Max's
+order, ``catalog.UTILITIES``). Clicking an implemented utility (Collapse, Measure, Reset XForm) opens its
+rollout below, like Max; the others are placeholders.
+"""
 
 import bmesh
 import bpy
-from bpy.types import Operator
+from bpy.props import StringProperty
+from bpy.types import Menu, Operator
 
 from .. import utils
+from ..placeholder import placeholder
+from . import catalog, widgets
 from .modify import collapse_stack
 
 
@@ -93,33 +100,66 @@ class OBJECT_OT_mx_measure(Operator):
         return {'FINISHED'}
 
 
-def draw(layout, context):
+class WM_OT_mx_utility(Operator):
+    """Open this utility's rollout below (click again to close it)"""
+    bl_idname = "wm.mx_utility"
+    bl_label = "Utility"
+    bl_options = {'INTERNAL'}
+
+    utility: StringProperty(name="Utility", options={'SKIP_SAVE'})
+
+    def execute(self, context):
+        state = utils.get_state(context)
+        state.utility_active = "" if state.utility_active == self.utility else self.utility
+        return {'FINISHED'}
+
+
+def draw_utility_button(layout, context, button):
+    state = utils.get_state(context)
+    if not button.key:
+        placeholder(layout, button.label)
+        return
+    props = layout.operator(WM_OT_mx_utility.bl_idname, text=button.label,
+                            depress=state.utility_active == button.key)
+    props.utility = button.key
+
+
+class OBJECT_MT_mx_more_utilities(Menu):
+    """More utilities"""
+    bl_idname = "OBJECT_MT_mx_more_utilities"
+    bl_label = "Utilities"
+
+    def draw(self, context):
+        for button in catalog.MORE_UTILITIES:
+            draw_utility_button(self.layout, context, button)
+
+
+def _close_button(layout):
+    layout.operator(WM_OT_mx_utility.bl_idname, text="Close").utility = ""
+
+
+def draw_collapse(layout, context):
+    selected = len(utils.selected_objects(context))
+    layout.label(text="Selected Objects: {:d}".format(selected))
+    layout.label(text="Output Type:")
+    col = layout.column(align=True)
+    placeholder(col, "Modifier Stack Result", icon='RADIOBUT_ON', emboss=False,
+                feature="Output type choice (always Modifier Stack Result)")
+    placeholder(col, "Mesh", icon='RADIOBUT_OFF', emboss=False)
+    layout.operator(OBJECT_OT_mx_collapse.bl_idname, text="Collapse Selected")
+
+
+def draw_measure(layout, context):
     state = utils.get_state(context)
     obj = context.active_object
-
-    header, body = layout.panel("MXUI_utilities")
-    header.label(text="Utilities")
-    if body is not None:
-        grid = body.grid_flow(row_major=True, columns=2, even_columns=True, align=True)
-        grid.operator(OBJECT_OT_mx_reset_xform.bl_idname)
-        grid.operator(OBJECT_OT_mx_collapse.bl_idname)
-        grid.operator(OBJECT_OT_mx_measure.bl_idname)
-        grid.operator("scene.mx_units_setup", text="Units Setup...")
-        grid.operator("object.mx_random_wire_color", text="Random Colors")
-        grid.operator("object.mx_unfreeze_all")
-
-    header, body = layout.panel("MXUI_utilities_measure")
-    header.label(text="Measure")
-    if body is None:
-        return
     if obj is None:
-        body.label(text="Select an object")
+        layout.label(text="Select an object")
         return
-    body.use_property_split = True
-    body.use_property_decorate = False
-    col = body.column()
+    col = layout.column()
+    col.use_property_split = True
+    col.use_property_decorate = False
     col.label(text=obj.name, icon='OBJECT_DATA')
-    col.prop(obj, "dimensions")
+    col.operator(OBJECT_OT_mx_measure.bl_idname)
     if state.measure_object == obj.name:
         col.prop(state, "measure_area")
         col.prop(state, "measure_volume")
@@ -127,10 +167,48 @@ def draw(layout, context):
         sub = col.row()
         sub.active = False
         sub.label(text="Press Measure for area and volume")
+    placeholder(col, "Center of Mass")
+    col.prop(obj, "dimensions")
+
+
+def draw_reset_xform(layout, _context):
+    layout.operator(OBJECT_OT_mx_reset_xform.bl_idname, text="Reset Selected")
+
+
+UTILITY_ROLLOUTS = {
+    'COLLAPSE': ("Collapse", draw_collapse),
+    'MEASURE': ("Measure", draw_measure),
+    'RESET_XFORM': ("Reset XForm", draw_reset_xform),
+}
+assert {button.key for button in catalog.UTILITIES if button.key} == set(UTILITY_ROLLOUTS)
+
+
+def draw(layout, context):
+    state = utils.get_state(context)
+    body = widgets.rollout(layout, "utilities", "Utilities")
+    if body is not None:
+        row = body.row(align=False)
+        row.menu(OBJECT_MT_mx_more_utilities.bl_idname, text="More...")
+        placeholder(row, "Sets")
+        placeholder(row, "", icon='PREFERENCES', feature="Configure Button Sets")
+        col = body.column(align=False)
+        for button in catalog.UTILITIES:
+            draw_utility_button(col, context, button)
+
+    entry = UTILITY_ROLLOUTS.get(state.utility_active)
+    if entry is None:
+        return
+    title, draw_function = entry
+    body = widgets.rollout(layout, "utility_" + state.utility_active.lower(), title)
+    if body is not None:
+        draw_function(body, context)
+        _close_button(body)
 
 
 classes = (
     OBJECT_OT_mx_reset_xform,
     OBJECT_OT_mx_collapse,
     OBJECT_OT_mx_measure,
+    WM_OT_mx_utility,
+    OBJECT_MT_mx_more_utilities,
 )

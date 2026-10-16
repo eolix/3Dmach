@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Display tab: display colour, hide by category, hide, freeze, display properties and layers.
+Display tab: Display Color, Hide by Category, Hide, Freeze, Display Properties and Link Display
+(``catalog.DISPLAY``).
 
 Hide by Category and the display colour apply to every 3D viewport (Max's settings are global, Blender's
 are per viewport). Display properties apply to all selected objects, toggled from the active one.
@@ -13,8 +14,9 @@ from bpy.props import EnumProperty
 from bpy.types import Operator
 
 from .. import utils
-from .. import freeze
+from ..placeholder import placeholder
 from ..state import HIDE_CATEGORIES
+from . import catalog, widgets
 
 SEE_THROUGH_ALPHA = 0.4
 
@@ -86,63 +88,88 @@ class OBJECT_OT_mx_display_toggle(Operator):
         return {'FINISHED'}
 
 
-def draw(layout, context):
+def _check(value):
+    return 'CHECKBOX_HLT' if value else 'CHECKBOX_DEHLT'
+
+
+def _placeholder_check(layout, text):
+    placeholder(layout, text, icon='CHECKBOX_DEHLT', emboss=False)
+
+
+def _special_display_color(layout, context):
     state = utils.get_state(context)
+    layout.label(text="Wireframe:")
+    row = layout.row()
+    row.prop_enum(state, "wire_display_color", 'OBJECT', text="Object Color")
+    placeholder(row, "Material Color", feature="Wireframe in Material Color")
+    layout.label(text="Shaded:")
+    row = layout.row()
+    row.prop_enum(state, "shaded_display_color", 'OBJECT', text="Object Color")
+    row.prop_enum(state, "shaded_display_color", 'MATERIAL', text="Material Color")
+
+
+# Max's Hide by Category list: state properties, or None for categories without a Blender equivalent.
+_HIDE_BY_CATEGORY = (
+    ("hide_geometry", "Geometry"),
+    ("hide_shapes", "Shapes"),
+    ("hide_lights", "Lights"),
+    ("hide_cameras", "Cameras"),
+    ("hide_helpers", "Helpers"),
+    (None, "Space Warps"),
+    (None, "Particle Systems"),
+    ("hide_bones", "Bone Objects"),
+)
+assert {prop for prop, _label in _HIDE_BY_CATEGORY if prop} == {prop for prop, *_rest in HIDE_CATEGORIES}
+
+
+def _special_hide_by_category(layout, context):
+    state = utils.get_state(context)
+    col = layout.column(align=True)
+    for prop, label in _HIDE_BY_CATEGORY:
+        if prop is None:
+            _placeholder_check(col, label)
+        else:
+            col.prop(state, prop, text=label)
+
+
+def _special_display_properties(layout, context):
+    state = utils.get_state(context)
+    prefs = utils.get_prefs(context)
     obj = context.active_object
+    col = layout.column(align=True)
 
-    header, body = layout.panel("MXUI_display_color", default_closed=True)
-    header.label(text="Display Color")
-    if body is not None:
-        body.use_property_split = True
-        body.use_property_decorate = False
-        body.prop(state, "wire_display_color")
-        body.prop(state, "shaded_display_color")
+    def toggle(key, label):
+        on = obj is not None and display_toggle_state(obj, key)
+        col.operator(OBJECT_OT_mx_display_toggle.bl_idname, text=label, icon=_check(on),
+                     emboss=False).property = key
 
-    header, body = layout.panel("MXUI_display_hide_by_category", default_closed=True)
-    header.label(text="Hide by Category")
-    if body is not None:
-        col = body.column(align=True)
-        for prop, _label, _kinds in HIDE_CATEGORIES:
-            col.prop(state, prop)
+    toggle('BOX', "Display as Box")
+    col.prop(state, "backface_cull")
+    _placeholder_check(col, "Edges Only")
+    _placeholder_check(col, "Vertex Ticks")
+    _placeholder_check(col, "Trajectory")
+    toggle('SEE_THROUGH', "See-Through")
+    _placeholder_check(col, "Ignore Extents")
+    if prefs is not None:
+        col.prop(prefs, "frozen_in_gray", text="Show Frozen in Gray")
+    else:
+        _placeholder_check(col, "Show Frozen in Gray")
+    _placeholder_check(col, "Never Degrade")
+    row = col.row()
+    _placeholder_check(row, "Vertex Colors")
+    placeholder(row, "Shaded", feature="Vertex Colors Shaded")
 
-    header, body = layout.panel("MXUI_display_hide")
-    header.label(text="Hide")
-    if body is not None:
-        col = body.column(align=True)
-        col.operator("object.hide_view_set", text="Hide Selected").unselected = False
-        col.operator("object.hide_view_set", text="Hide Unselected").unselected = True
-        col.operator(freeze.OBJECT_OT_mx_unhide_by_name.bl_idname, text="Unhide by Name")
-        col.operator("object.hide_view_clear", text="Unhide All").select = False
 
-    header, body = layout.panel("MXUI_display_freeze")
-    header.label(text="Freeze")
-    if body is not None:
-        col = body.column(align=True)
-        col.operator(freeze.OBJECT_OT_mx_freeze_selected.bl_idname, text="Freeze Selected")
-        col.operator(freeze.OBJECT_OT_mx_freeze_unselected.bl_idname, text="Freeze Unselected")
-        col.operator(freeze.OBJECT_OT_mx_unfreeze_by_name.bl_idname, text="Unfreeze by Name")
-        col.operator(freeze.OBJECT_OT_mx_unfreeze_all.bl_idname, text="Unfreeze All")
+SPECIALS = {
+    "DISPLAY_COLOR": _special_display_color,
+    "HIDE_BY_CATEGORY": _special_hide_by_category,
+    "DISPLAY_PROPERTIES": _special_display_properties,
+}
 
-    header, body = layout.panel("MXUI_display_properties", default_closed=True)
-    header.label(text="Display Properties")
-    if body is not None:
-        col = body.column(align=True)
-        for key, label, _desc in DISPLAY_TOGGLES:
-            depress = obj is not None and display_toggle_state(obj, key)
-            col.operator(OBJECT_OT_mx_display_toggle.bl_idname, text=label, depress=depress).property = key
-        col.separator()
-        col.prop(state, "backface_cull", toggle=True)
 
-    header, body = layout.panel("MXUI_display_layers", default_closed=True)
-    header.label(text="Layers")
-    if body is not None:
-        layer_collection = context.view_layer.active_layer_collection
-        row = body.row()
-        row.label(text="Current:", icon='OUTLINER_COLLECTION')
-        row.label(text=layer_collection.name)
-        col = body.column(align=True)
-        col.operator("object.mx_new_layer_from_selection", icon='COLLECTION_NEW')
-        col.operator("object.mx_add_to_current_layer")
+def draw(layout, context):
+    for data in catalog.DISPLAY:
+        widgets.draw_rollout(layout, context, data, SPECIALS)
 
 
 classes = (
