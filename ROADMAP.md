@@ -167,7 +167,7 @@ Build a full custom keymap. Verify each binding against Max's defaults (ask the 
 #### 1b. UI (`mx_ui`)
 
 - [~] **Quad menu** on right-click in the viewport, context-sensitive (object mode vs edit mode), with Max's four-quadrant layout (tools 1 / tools 2 / display / transform). Implement as a custom popup or pie-style menu. *(`VIEW3D_MT_mx_quad` (pie with four quadrant columns); opens like a Blender pie (doesn't stay open like Max's).)*
-- [x] **Command panel** docked on the right with tabs: Create, Modify, Hierarchy, Display, Utilities. (Motion tab omitted until animation is in scope.) *(In the Properties editor's Tool tab (decision 0007). Blender's own tool panels still show below it.)*
+- [x] **Command panel** docked on the right with tabs: Create, Modify, Hierarchy, Display, Utilities. (Motion tab included as interface, its animation features come later.) *(In the Properties editor's Tool tab (decision 0007). Blender's own tool panels still show below it.)*
   - Create: primitive buttons (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere, Teapot-equivalent → use an original test shape, not the Utah teapot data unless its licence is confirmed), splines, lights, cameras.
   - Modify: object name + colour swatch, modifier list dropdown, stack view, parameters of the selected stack entry.
   - Hierarchy: pivot editing (affect pivot only / affect object only / center to object / align to world).
@@ -175,7 +175,8 @@ Build a full custom keymap. Verify each binding against Max's defaults (ask the 
 - [x] **Freeze** (Max concept) → make objects unselectable and greyed out.
 - [x] **Layer / Scene Explorer** panel mapped onto collections.
 - [x] **Theme**: original dark-grey theme inspired by Max's palette. No copied assets. *(Applied on request (`preferences.mx_apply_theme`).)*
-- [~] **Startup file**: four-viewport layout (Top, Front, Left, Perspective), command panel on the right, time slider hidden (animation out of scope), Max-like grid. *(`screen.mx_max_layout` + applied to new files; checked in GUI screenshots. Viewports should zoom extents after building.)*
+- [~] **Startup file**: four-viewport layout (Top, Front, Left, Perspective), command panel on the right, time slider and track bar shown as in Max, Max-like grid. *(`screen.mx_max_layout` + applied to new files; checked in GUI screenshots. Viewports should zoom extents after building.)*
+- [~] **Full Max interface chrome**, exactly like Max's default UI, with placeholders for features that don't exist yet: menu bar, main toolbar, ribbon, Scene Explorer with filter bar, viewport layout tab bar, viewport label menus, ViewCube, all six command-panel tabs with every category/rollout/button, time slider, track bar, status line with animation and viewport navigation controls. Spec: `docs/design/max-ui-chrome.md`. *(Maintainer request, 2026-10-16.)*
 - [x] **Units**: Max-style units setup dialog (display units + system unit scale) mapped to Blender scene units.
 
 #### 1c. Live primitives (Python first pass)
