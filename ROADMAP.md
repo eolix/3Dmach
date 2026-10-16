@@ -167,7 +167,7 @@ Build a full custom keymap. Verify each binding against Max's defaults (ask the 
 #### 1b. UI (`mx_ui`)
 
 - [~] **Quad menu** on right-click in the viewport, context-sensitive (object mode vs edit mode), with Max's four-quadrant layout (tools 1 / tools 2 / display / transform). Implement as a custom popup or pie-style menu. *(`VIEW3D_MT_mx_quad` (pie with four quadrant columns); opens like a Blender pie (doesn't stay open like Max's).)*
-- [x] **Command panel** docked on the right with tabs: Create, Modify, Hierarchy, Display, Utilities. (Motion tab included as interface, its animation features come later.) *(In the Properties editor's Tool tab (decision 0007). Blender's own tool panels still show below it.)*
+- [x] **Command panel** docked on the right with tabs: Create, Modify, Hierarchy, Motion, Display, Utilities (Motion as interface; its animation features come later). *(In the Properties editor's Tool tab (decision 0007). Blender's own tool panels still show below it.)*
   - Create: primitive buttons (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere, Teapot-equivalent → use an original test shape, not the Utah teapot data unless its licence is confirmed), splines, lights, cameras.
   - Modify: object name + colour swatch, modifier list dropdown, stack view, parameters of the selected stack entry.
   - Hierarchy: pivot editing (affect pivot only / affect object only / center to object / align to world).
