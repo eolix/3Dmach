@@ -16,7 +16,7 @@ bl_info = {
     "blender": (5, 2, 0),
     "location": "File > Import > .max Scene",
     "description": "Import scenes from .max files (Max-compatible importer)",
-    "warning": "Early development: scenes are not imported yet",
+    "warning": "Early development: geometry decoding still in progress",
     "category": "Import-Export",
 }
 
@@ -29,7 +29,10 @@ import os
 
 import bpy
 from bpy.props import (
+    BoolProperty,
     CollectionProperty,
+    EnumProperty,
+    FloatProperty,
     StringProperty,
 )
 from bpy_extras.io_utils import (
@@ -59,6 +62,64 @@ class IMPORT_SCENE_OT_mx_max(bpy.types.Operator, ImportHelper):
     filename_ext = ".max"
     filter_glob: StringProperty(default="*.max", options={'HIDDEN'})
 
+    units: EnumProperty(
+        name="Scene Units",
+        description="Units the scene was built in",
+        items=build_scene.UNIT_CHOICES,
+        default='AUTO',
+    )
+    global_scale: FloatProperty(
+        name="Scale",
+        description="Extra scale factor applied on import",
+        min=1e-6, max=1e6, soft_min=0.001, soft_max=1000.0,
+        default=1.0,
+    )
+    use_collection: BoolProperty(
+        name="New Collection",
+        description="Put the imported scene in a new collection named after the file",
+        default=True,
+    )
+    keep_modifier_stack: BoolProperty(
+        name="Keep Stack Live",
+        description="Import modifier stacks as editable modifiers (off: collapse the stack on import)",
+        default=True,
+    )
+    import_materials: BoolProperty(name="Materials", default=True)
+    import_lights: BoolProperty(name="Lights", default=True)
+    import_cameras: BoolProperty(name="Cameras", default=True)
+    texture_search_dir: StringProperty(
+        name="Texture Folder",
+        description="Extra folder to search (with sub-folders) for textures that aren't where the scene says",
+        subtype='DIR_PATH',
+        default="",
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(self, "units")
+        layout.prop(self, "global_scale")
+        layout.prop(self, "use_collection")
+        layout.prop(self, "keep_modifier_stack")
+        col = layout.column(heading="Include")
+        col.prop(self, "import_materials")
+        col.prop(self, "import_lights")
+        col.prop(self, "import_cameras")
+        layout.prop(self, "texture_search_dir")
+
+    def settings(self):
+        return build_scene.ImportSettings(
+            units=self.units,
+            global_scale=self.global_scale,
+            use_collection=self.use_collection,
+            keep_modifier_stack=self.keep_modifier_stack,
+            import_materials=self.import_materials,
+            import_lights=self.import_lights,
+            import_cameras=self.import_cameras,
+            texture_search_dirs=(bpy.path.abspath(self.texture_search_dir),) if self.texture_search_dir else (),
+        )
+
     def execute(self, context):
         if self.files:
             paths = [os.path.join(self.directory, file.name) for file in self.files]
@@ -66,8 +127,9 @@ class IMPORT_SCENE_OT_mx_max(bpy.types.Operator, ImportHelper):
             paths = [self.filepath]
 
         ret = {'CANCELLED'}
+        settings = self.settings()
         for path in paths:
-            if build_scene.import_file(self, context, path) == {'FINISHED'}:
+            if build_scene.import_file(self, context, path, settings) == {'FINISHED'}:
                 ret = {'FINISHED'}
         return ret
 

@@ -1,4 +1,10 @@
-This repository is only used as a mirror. Blender development happens on projects.blender.org.
+## What
 
-To get started with contributing code, please see:
-https://developer.blender.org/docs/handbook/contributing/
+<!-- One feature per pull request. What does it change, and why? -->
+
+## Checklist
+
+- [ ] `ROADMAP.md` checklist updated
+- [ ] Tests added or updated, and passing (`pylibs/maxfile` pytest, `tests/corpus`, `tests/blender/run_tests.py`)
+- [ ] Non-obvious choices recorded in `docs/decisions/`
+- [ ] No Autodesk assets, SDK code, or `.max` files committed (ROADMAP §3)

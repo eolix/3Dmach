@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Full build of the fork on Linux x64 with Blender's precompiled libraries, then the headless tests against
+# the built binary. Manual only for now: it takes hours and needs most of the runner's disk.
+# Not yet verified end to end; see docs/BUILDING.md.
+name: Build (Linux x64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential git git-lfs cmake ninja-build \
+            libx11-dev libxxf86vm-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libegl-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev linux-libc-dev
+      - name: Precompiled libraries
+        run: python3 build_files/utils/make_update.py --no-blender
+      - name: Build
+        run: make ninja BUILD_DIR=../build_linux
+      - name: Headless tests on the built binary
+        run: python3 tests/blender/run_tests.py --blender ../build_linux/bin/blender
+      - name: Package
+        run: tar -C ../build_linux -cJf PROJECT_NAME-linux-x64.tar.xz bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PROJECT_NAME-linux-x64
+          path: PROJECT_NAME-linux-x64.tar.xz
+          retention-days: 7

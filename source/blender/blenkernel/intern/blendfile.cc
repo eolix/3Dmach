@@ -1534,6 +1534,11 @@ UserDef *BKE_blendfile_userdef_from_defaults()
         "cycles",
         "pose_library",
         "bl_pkg",
+        /* PROJECT_NAME add-ons, see `ROADMAP.md`. */
+        "mx_keymap",
+        "mx_ui",
+        "mx_primitives",
+        "mx_io_max",
     };
     for (int i = 0; i < ARRAY_SIZE(addons); i++) {
       bAddon *addon = BKE_addon_new();
@@ -1541,6 +1546,9 @@ UserDef *BKE_blendfile_userdef_from_defaults()
       BLI_addtail(&userdef->addons, addon);
     }
   }
+
+  /* PROJECT_NAME: the Max-style keymap (preset `scripts/presets/keyconfig/Max-Style.py`, filled by `mx_keymap`). */
+  STRNCPY(userdef->keyconfigstr, "Max-Style");
 
   /* Theme. */
   {

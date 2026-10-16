@@ -1,42 +1,28 @@
-<!--
-Keep this document short & concise,
-linking to external resources instead of including content in-line.
-See 'release/text/readme.html' for the end user read-me.
--->
+# PROJECT_NAME
 
-> [!IMPORTANT]
-> Cloning from this [GitHub mirror](https://github.com/blender/blender) may cause Git LFS errors. To avoid this, use `GIT_LFS_SKIP_SMUDGE=1` when doing your initial clone.  
-> See [the documentation](https://developer.blender.org/docs/handbook/contributing/using_git/#github-mirror) for full instructions.
+A free, open-source, Max-compatible 3D application: Max-style navigation, quad menus, command panel and
+modelling workflow; opens `.max` files and renders their materials with Blender's renderers (Cycles / EEVEE). Built as a fork of
+[Blender](https://www.blender.org) 5.2 LTS. Not affiliated with or endorsed by Autodesk.
 
-Blender
-=======
+**Status: early development.** See [`ROADMAP.md`](../ROADMAP.md) for the plan and progress.
 
-Blender is the free and open source 3D creation suite.
-It supports the entirety of the 3D pipeline—modeling, rigging, animation, simulation, rendering, compositing,
-motion tracking and video editing.
+What it adds on top of Blender (as bundled add-ons, which also run on a stock Blender 5.2):
 
-![Blender screenshot](https://code.blender.org/wp-content/uploads/2018/12/springrg.jpg "Blender screenshot")
+| Add-on | What |
+|---|---|
+| `mx_keymap` | Max-style hotkeys and viewport navigation |
+| `mx_ui` | Quad menus, command panel, Max-style layout and theme |
+| `mx_primitives` | Live primitives with editable parameters and click-drag creation |
+| `mx_io_max` | `.max` scene import (in progress), built on the pure-Python [`maxfile`](../pylibs/maxfile) reader |
 
-Project Pages
--------------
+## Getting started
 
-- [Main Website](http://www.blender.org)
-- [Reference Manual](https://docs.blender.org/manual/en/latest/index.html)
-- [User Community](https://www.blender.org/community/)
+- Building: [`docs/BUILDING.md`](../docs/BUILDING.md)
+- Contributing and running the tests: [`docs/CONTRIBUTING.md`](../docs/CONTRIBUTING.md)
+- What we know about the `.max` format: [`docs/format/`](../docs/format/)
 
-Development
------------
+## Licence
 
-- [Build Instructions](https://developer.blender.org/docs/handbook/building_blender/)
-- [Code Review & Bug Tracker](https://projects.blender.org)
-- [Developer Forum](https://devtalk.blender.org)
-- [Developer Documentation](https://developer.blender.org/docs/)
-
-
-License
--------
-
-Blender as a whole is licensed under the GNU General Public License, Version 3.
-Individual files may have a different but compatible license.
-
-See [blender.org/about/license](https://www.blender.org/about/license) for details.
+GPL, like Blender: the fork as a whole is licensed under the GNU General Public License, version 3; individual
+files may carry a different but compatible licence. Blender is a trademark of the Blender Foundation; "Max" and
+"3ds Max" are trademarks of Autodesk, used here only to describe compatibility.
