@@ -19,8 +19,9 @@ with screen operators (which need event-loop ticks in between, see 0007).
 ## Decision
 
 **Strips are rarely used editors, marked on the screen.** Horizontal strips (main toolbar; the explorer's
-menu, find and footer rows; row 1 of the status line) are **Info editors** shrunk to their header (`screen.area_split` never makes an
-area smaller than its header, so an extreme split factor gives a header-high area). `INFO_HT_header.draw` is
+menu, find and footer rows; row 1 of the status line) are **Info editors** shrunk to their header
+(`screen.area_split` never makes an area smaller than its header, so an extreme split factor gives a
+header-high area). `INFO_HT_header.draw` is
 overridden: in a marked area it draws the strip, elsewhere Blender's Info header. Vertical strips (viewport
 layout tab bar, explorer filter bar) are narrow **Properties editors** (29 px, Blender's minimum area width)
 without header and navigation bar, showing the **Collection tab pinned to the scene collection**: every
@@ -76,9 +77,9 @@ controls act on that viewport.
 
 **Bottom**: the Timeline's header is the time slider (a track drawn with proportional splits, scrubbed by a
 modal operator mapping the mouse to frames), its main region the track bar. Row 1 of the status line is a
-horizontal strip under it (Blender never shows the Timeline's footer); Blender's status bar draws row 2. The navigation controls are modes as in Max (Zoom, Zoom All, Field of
-View: own drag handling; Pan, Orbit, Zoom Region: Blender's operators started in the viewport clicked; right
-click ends the mode).
+horizontal strip under it (Blender never shows the Timeline's footer); Blender's status bar draws row 2.
+The navigation controls are modes as in Max (Zoom, Zoom All, Field of View: own drag handling; Pan, Orbit,
+Zoom Region: Blender's operators started in the viewport clicked; right click ends the mode).
 
 ## Consequences
 

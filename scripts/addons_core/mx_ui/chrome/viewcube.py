@@ -54,7 +54,7 @@ FACE_VIEWS = {
 }
 
 # Same angle as the Max Layout's perspective view.
-HOME_ROTATION = Euler((math.radians(65.0), 0.0, math.radians(-135.0))).to_quaternion()
+HOME_ROTATION = Euler((math.radians(65.0), 0.0, math.radians(-45.0))).to_quaternion()
 
 _FACE_COLOR = (0.78, 0.78, 0.80, 0.92)
 _FACE_SHADE = 0.13

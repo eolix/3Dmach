@@ -5,8 +5,8 @@
 """
 Strips of the Max window frame (``_areas.STRIP_TYPES``): toolbars drawn in editors that the Max Layout marked.
 
-- Horizontal strips (main toolbar, Scene Explorer menu, find and footer rows) are Info editors shrunk to their
-  header; ``INFO_HT_header.draw`` draws the strip in marked areas and Blender's Info header elsewhere.
+- Horizontal strips (main toolbar, Scene Explorer menu, find and footer rows, status row 1) are Info editors
+  shrunk to their header; ``INFO_HT_header.draw`` draws the strip in marked areas and Blender's Info header elsewhere.
 - Vertical strips (viewport layout tab bar, Scene Explorer filter bar) are narrow Properties editors without
   header and tabs, showing the Collection tab pinned to the scene collection, for which Blender's own panels
   don't draw; `MXUI_PT_strip` draws the strip there.

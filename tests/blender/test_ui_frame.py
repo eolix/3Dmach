@@ -538,7 +538,7 @@ class ViewCubeTest(unittest.TestCase):
         self.assertIsNone(self.cube.pick_part(cells, (200.0, 200.0)))
 
     def test_perspective_shows_three_faces(self):
-        rotation = Euler((math.radians(65.0), 0.0, math.radians(-135.0))).to_quaternion()
+        rotation = Euler((math.radians(65.0), 0.0, math.radians(-45.0))).to_quaternion()
         cells = self.cube.cube_cells(rotation, (0.0, 0.0), 30.0)
         self.assertEqual(len(cells), 27)
         parts = {cell[0] for cell in cells}

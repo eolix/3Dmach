@@ -140,9 +140,10 @@ Zoom Extents All (flyout), Field of View / Zoom Region, Pan View, Orbit (flyout)
 
 - **Menu bar**: `TOPBAR_MT_editor_menus.draw` replaced while `use_max_chrome` is on; the workspace tabs in the
   top bar are hidden in favour of the "Workspaces:" dropdown.
-- **Toolbar strips** (main toolbar; Scene Explorer menu, find and footer rows; status row 1): Info editors shrunk to their
-  header (an area can be as short as its header), whose header draw is overridden only for areas that the Max
-  layout marked as strips (`screen["mx_chrome_areas"]`, see `docs/decisions/0009-max-chrome-frame.md`).
+- **Toolbar strips** (main toolbar; Scene Explorer menu, find and footer rows; status row 1): Info editors
+  shrunk to their header (an area can be as short as its header), whose header draw is overridden only for
+  areas that the Max layout marked as strips (`screen["mx_chrome_areas"]`, see
+  `docs/decisions/0009-max-chrome-frame.md`).
 - **Vertical strips** (explorer filter bar, viewport layout tab bar): narrow Properties editors showing the
   Collection tab pinned to the scene collection (Blender draws no panels there), with one header-less panel
   drawing a column of icon buttons.

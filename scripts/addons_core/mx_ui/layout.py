@@ -77,7 +77,8 @@ _AXIS_ROTATIONS = {
     'FRONT': Euler((math.radians(90.0), 0.0, 0.0)),
     'LEFT': Euler((math.radians(90.0), 0.0, math.radians(-90.0))),
 }
-_PERSPECTIVE_ROTATION = Euler((math.radians(65.0), 0.0, math.radians(-135.0)))
+# Looking from the front left, above, like Max's default Perspective view.
+_PERSPECTIVE_ROTATION = Euler((math.radians(65.0), 0.0, math.radians(-45.0)))
 _VIEW_DISTANCE = 18.0
 
 
