@@ -18,6 +18,12 @@ PRIMITIVE_OPERATOR = "MESH_OT_mx_primitive_add"
 PRIMITIVE_OPERATOR_IDNAME = "mesh.mx_primitive_add"
 
 
+def use_max_chrome(context=None):
+    """True when the Max-style chrome (menu bar, toolbars, headers, status bar) should be drawn."""
+    prefs = get_prefs(context)
+    return bool(prefs and prefs.use_max_chrome)
+
+
 def get_prefs(context=None):
     """The add-on preferences, or None when the add-on is not enabled (e.g. while unregistering)."""
     context = context or bpy.context

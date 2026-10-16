@@ -123,6 +123,14 @@ class MXUI_AddonPreferences(AddonPreferences):
         description="Also show the command panel in the Tool tab of the 3D viewport sidebar",
         default=False,
     )
+    use_max_chrome: BoolProperty(
+        name="Max-Style Interface Chrome",
+        description=(
+            "Replace Blender's menu bar, status bar and editor headers in Max layouts with Max's: menu bar, "
+            "main toolbar, ribbon, Scene Explorer, viewport labels, time slider and status line"
+        ),
+        default=True,
+    )
     show_top_menus: BoolProperty(
         name="Max-Style Menus",
         description="Add Create, Modifiers and Group menus to the top bar",

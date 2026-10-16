@@ -46,6 +46,7 @@ from . import (
     theme,
 )
 from . import command_panel
+from . import chrome
 
 # Registration order matters: property groups before the classes that point to them.
 _modules = (
@@ -64,6 +65,7 @@ _modules = (
     topbar,
     layout,
     theme,
+    chrome,
 )
 
 
