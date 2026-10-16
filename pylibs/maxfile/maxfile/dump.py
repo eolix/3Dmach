@@ -11,6 +11,7 @@ Usage::
     python -m maxfile.dump scene.max --chunks               # chunk tree of every scene object
     python -m maxfile.dump scene.max --chunks --object 12 --depth 2
     python -m maxfile.dump scene.max --stream ClassDirectory3
+    python -m maxfile.dump scene.max --object 12 --decode   # what the decoders make of object 12
     python -m maxfile.dump scene.max --json                 # any of the above as JSON
 
 Output is meant to be grepped: scene objects are written ``[12]``, class-directory entries ``#5``, chunk types
@@ -21,6 +22,7 @@ __all__ = (
     "main",
     "summary",
     "chunk_rows",
+    "decoded_object",
 )
 
 import argparse
@@ -32,6 +34,11 @@ import sys
 import maxfile
 
 from . import chunks as _chunks
+from . import registry, report
+from .objects.geometry import MeshData
+from .objects.materials import MaterialData
+from .objects.modifiers import ModifierStack
+from .objects.primitives import PrimitiveData
 from .scene import SCENE_STREAM
 from .transform import Transform
 
@@ -180,6 +187,7 @@ def summary(mf: "maxfile.MaxFile") -> dict:
 
     scene = mf.scene
     data["objects"] = len(scene.objects)
+    geometry = {node.index: scene.resolve_geometry(node) for node in scene.nodes}
     nodes = []
     # Depth-first from the roots, iteratively (parent cycles were broken when the scene was built).
     stack = [(0, node) for node in reversed(scene.roots)]
@@ -195,12 +203,15 @@ def summary(mf: "maxfile.MaxFile") -> dict:
             "material": _obj_ref(node.material),
             "layer": _obj_ref(node.layer),
             "controller": _obj_ref(node.controller),
+            "geometry": _obj_ref(geometry[node.index][0]),
+            "modifiers": [_obj_ref(m) for m in geometry[node.index][1]],
             "transform": _transform_json(node.transform),
             "object_offset": _transform_json(node.object_offset),
         })
         stack.extend((depth + 1, child) for child in reversed(node.children))
     data["nodes"] = nodes
     data["roots"] = len(scene.roots)
+    data.update(_decoded_sections(mf))
 
     data["unknown_classes"] = [
         {
@@ -217,6 +228,141 @@ def summary(mf: "maxfile.MaxFile") -> dict:
     data["undecoded"] = dict(scene.undecoded.most_common())
     data["warnings"] = mf.warnings
     return data
+
+
+def _mesh_stats(mesh: MeshData | None):
+    return None if mesh is None else dict(mesh.stats(), source=mesh.source, problems=len(mesh.warnings))
+
+
+def _material_tree(mat: MaterialData, depth: int, rows: list, seen: set):
+    """Flatten a material and its sub-materials into rows (iterative, each material once per tree)."""
+    stack = [(depth, mat)]
+    while stack:
+        d, m = stack.pop()
+        row = {
+            "depth": d, "index": m.index, "class": m.class_name, "name": m.name,
+            "params": report.to_plain(m.params),
+            "maps": {k: _map_row(v) for k, v in m.maps.items()},
+            "unassigned_maps": {str(slot): _map_row(v) for slot, v in m.unassigned_maps.items()},
+            "sub_materials": None if m.sub_materials is None else len(m.sub_materials),
+            "sub_ids": m.sub_ids,
+            "param_blocks": m.param_blocks,
+        }
+        rows.append(row)
+        if m.index in seen:
+            row["repeated"] = True
+            continue
+        seen.add(m.index)
+        for sub in reversed(m.sub_materials or []):
+            if sub is not None:
+                stack.append((d + 1, sub))
+
+
+def _map_row(m):
+    if m is None:
+        return None
+    return {"index": m.index, "class": m.class_name, "path": m.path, "path_source": m.path_source,
+            "asset_index": m.asset_index}
+
+
+def _decoded_sections(mf) -> dict:
+    """Geometry, primitives, modifier stacks and materials, as decoded by the registered decoders."""
+    scene = mf.scene
+    geometry, primitives, stacks = [], [], []
+    for obj in scene.objects:
+        info = registry.find_decoder(obj.class_id, obj.superclass_id)
+        if info is None or not info.kind.startswith("geometry."):
+            continue
+        value = scene.decode(obj)
+        ref = _obj_ref(obj)
+        if isinstance(value, MeshData):
+            geometry.append(dict(ref, mesh=_mesh_stats(value)))
+        elif isinstance(value, PrimitiveData):
+            primitives.append(dict(ref, kind=value.kind, params=report.to_plain(value.params),
+                                   encoding=value.encoding, extra_values=report.to_plain(value.extra_values),
+                                   param_block=value.param_block, cached_mesh=_mesh_stats(value.cached_mesh)))
+        elif isinstance(value, ModifierStack):
+            stacks.append(dict(ref, base=_obj_ref(scene.objects[value.base]) if value.base is not None else None,
+                               modifiers=[_obj_ref(scene.objects[m.object_index]) for m in value.modifiers]))
+        else:
+            geometry.append(dict(ref, mesh=None, error="not decoded (see warnings)"))
+    materials = []
+    seen = set()
+    for node in scene.nodes:
+        if node.material is None or node.material.index in seen:
+            continue
+        value = scene.decode(node.material)
+        if isinstance(value, MaterialData):
+            _material_tree(value, 0, materials, seen)
+        else:
+            seen.add(node.material.index)
+            materials.append({"depth": 0, "index": node.material.index, "class": node.material.class_label(),
+                              "decoded": False})
+    return {"geometry": geometry, "primitives": primitives, "modifier_stacks": stacks, "materials": materials}
+
+
+def _kv(params: dict) -> str:
+    def value(v):
+        # JSON-ready data has lists where the decoder had tuples; show vectors as tuples again.
+        if isinstance(v, list) and all(isinstance(x, (int, float)) for x in v):
+            v = tuple(v)
+        return report.format_value(v)
+    return "  ".join("{:s}={:s}".format(str(k), value(v)) for k, v in params.items())
+
+
+def _mesh_text(stats) -> str:
+    if stats is None:
+        return "-"
+    text = "vertices={:d} faces={:d} corners={:d} channels={:s} material_ids={:s} smoothing={:s}".format(
+        stats["vertices"], stats["faces"], stats["corners"], ",".join(str(c) for c in stats["channels"]) or "-",
+        ",".join(str(m) for m in stats["material_ids"][:16]) or "-", "yes" if stats["smoothing"] else "no")
+    if stats["problems"]:
+        text += " problems={:d}".format(stats["problems"])
+    return text
+
+
+def _ref_text(ref) -> str:
+    return "-" if ref is None else "[{:d}] {:s}".format(ref["index"], ref["class"])
+
+
+def _print_decoded(data: dict, w):
+    w("\n== Geometry ({:d}) ==\n".format(len(data["geometry"])))
+    for g in data["geometry"]:
+        w("  {:s}  {:s}{:s}\n".format(_ref_text(g), "source={:s} ".format(g["mesh"]["source"]) if g["mesh"] else "",
+                                      _mesh_text(g["mesh"]) if g["mesh"] else g.get("error", "-")))
+    w("\n== Primitives ({:d}) ==\n".format(len(data["primitives"])))
+    for p in data["primitives"]:
+        line = "  {:s}  kind={:s}  {:s}".format(_ref_text(p), p["kind"], _kv(p["params"]) or "(no parameters)")
+        line += "  encoding={!s}".format(p["encoding"])
+        if p["extra_values"]:
+            line += "  extra_values={:s}".format(report.format_value(p["extra_values"]))
+        if p["cached_mesh"]:
+            line += "  cached_mesh=({:s})".format(_mesh_text(p["cached_mesh"]))
+        w(line + "\n")
+    w("\n== Modifier stacks ({:d}, modifiers listed top of stack first) ==\n".format(len(data["modifier_stacks"])))
+    for m in data["modifier_stacks"]:
+        w("  {:s}  base={:s}  modifiers={:s}\n".format(
+            _ref_text(m), _ref_text(m["base"]), ", ".join(_ref_text(r) for r in m["modifiers"]) or "-"))
+    w("\n== Materials used by nodes ({:d} rows) ==\n".format(len(data["materials"])))
+    for m in data["materials"]:
+        pad = "  " * (m["depth"] + 1)
+        if not m.get("decoded", True):
+            w("{:s}[{:d}] {:s}  (not decoded)\n".format(pad, m["index"], m["class"]))
+            continue
+        line = "{:s}[{:d}] {:s} {:s}".format(pad, m["index"], m["class"],
+                                             json.dumps(m["name"], ensure_ascii=False) if m["name"] else "(no name)")
+        if m.get("repeated"):
+            w(line + "  (repeated)\n")
+            continue
+        if m["params"]:
+            line += "  " + _kv(m["params"])
+        for key, mp in list(m["maps"].items()) + [("slot" + k, v) for k, v in m["unassigned_maps"].items()]:
+            line += "  {:s}={:s}".format(key, "-" if mp is None else "[{:d}] {:s}{:s}".format(
+                mp["index"], mp["class"], " path={:s}".format(json.dumps(mp["path"], ensure_ascii=False))
+                if mp["path"] else ""))
+        if m["sub_materials"] is not None:
+            line += "  sub_materials={:d}  sub_ids={!s}".format(m["sub_materials"], m["sub_ids"])
+        w(line + "\n")
 
 
 def _print_summary(data: dict, mf, out):
@@ -272,6 +418,10 @@ def _print_summary(data: dict, mf, out):
         for key, obj in (("object", node.object), ("material", node.material), ("layer", node.layer)):
             if obj is not None:
                 parts.append("{:s}={:s}".format(key, _obj_ref_text(obj)))
+        if n["geometry"] is not None and (node.object is None or n["geometry"]["index"] != node.object.index):
+            parts.append("geometry={:s}".format(_ref_text(n["geometry"])))
+        if n["modifiers"]:
+            parts.append("modifiers={:d}".format(len(n["modifiers"])))
         if node.controller is not None:
             parts.append("controller={:s}".format(_obj_ref_text(node.controller)))
             if node.transform is None:
@@ -283,6 +433,8 @@ def _print_summary(data: dict, mf, out):
         if offset:
             parts.append(offset)
         w("  ".join(parts) + "\n")
+
+    _print_decoded(data, w)
 
     w("\n== Classes not in the registry ({:d}) ==\n".format(len(data["unknown_classes"])))
     for u in data["unknown_classes"]:
@@ -426,6 +578,91 @@ def _dump_chunks(mf, args, out) -> int:
 
 
 # -----------------------------------------------------------------------------
+# Decoded view of one object
+
+def _param_entry_text(entry) -> str:
+    g = entry.guessed
+    parts = ["id=0x{:04X}".format(entry.param_id), "chunk=0x{:04X}".format(entry.chunk_type),
+             "bytes={:d}".format(len(entry.raw))]
+    for key in ("float", "int", "color", "rgba_color"):
+        if key in g:
+            parts.append("{:s}={:s}".format(key, report.format_value(g[key])))
+    return "  ".join(parts)
+
+
+def decoded_object(mf, index: int) -> dict:
+    """What the decoders and the generic readers make of scene object ``index`` (JSON-compatible)."""
+    from .objects.maps import is_map_like, read_map
+    scene = mf.scene
+    if not 0 <= index < len(scene.objects):
+        raise maxfile.MaxFileError("object {:d} out of range (the scene has {:d} objects)".format(
+            index, len(scene.objects)))
+    obj = scene.objects[index]
+    info = registry.find_decoder(obj.class_id, obj.superclass_id)
+    before = len(scene.warnings)
+    value = scene.decode(obj) if info is not None else None
+    result = {
+        "object": index,
+        "class": obj.class_label(),
+        "class_index": obj.class_index,
+        "class_id": str(obj.class_id) if obj.class_id is not None else None,
+        "decoder": info.name if info is not None else None,
+        "kind": info.kind if info is not None else None,
+        "value": report.to_plain(value),
+        "references": {str(slot): _obj_ref(scene.objects[i]) for slot, i in sorted(obj.references.items())},
+    }
+    node = scene.node(index)
+    if node is not None:
+        base, modifiers = scene.resolve_geometry(node)
+        result["node"] = {
+            "name": node.name, "parent_index": node.parent_index,
+            "transform": _transform_json(node.transform), "object_offset": _transform_json(node.object_offset),
+            "geometry": _obj_ref(base), "modifiers": [_obj_ref(m) for m in modifiers],
+        }
+    # Generic, structural readings: useful for classes without a decoder.
+    result["param_block"] = report.to_plain(scene.param_block(obj))
+    ctx = scene.context
+    result["map"] = report.to_plain(read_map(obj, ctx)) if is_map_like(obj, ctx) else None
+    result["warnings"] = scene.warnings[before:]
+    return result
+
+
+def _print_decoded_object(data: dict, mf, out):
+    w = out.write
+    w("== Object [{:d}] {:s}  #{:d}  class={!s}  decoder={:s} ==\n".format(
+        data["object"], data["class"], data["class_index"], data["class_id"],
+        json.dumps(data["decoder"]) + " kind=" + data["kind"] if data["decoder"] else "none"))
+    refs = data["references"]
+    w("references: {:s}\n".format("  ".join("{:s}={:s}".format(k, _ref_text(v)) for k, v in refs.items()) or "-"))
+    if "node" in data:
+        n = data["node"]
+        w("node: name={:s}  parent_index={!s}  geometry={:s}  modifiers={:s}\n".format(
+            json.dumps(n["name"], ensure_ascii=False), n["parent_index"], _ref_text(n["geometry"]),
+            ", ".join(_ref_text(m) for m in n["modifiers"]) or "-"))
+    scene = mf.scene
+    obj = scene.objects[data["object"]]
+    if data["decoder"]:
+        w("\ndecoded:\n")
+        value = scene.decode(obj)
+        w(report.format_value(value) + "\n" if value is not None else "  None (see warnings)\n")
+    block = scene.param_block(obj)
+    w("\nas a parameter block ({:d} leaf entries; values are guesses from the payload end):\n".format(
+        len(block.entries)))
+    for entry in block.entries[:64]:
+        w("  " + _param_entry_text(entry) + "\n")
+    if len(block.entries) > 64:
+        w("  ... ({:d} total)\n".format(len(block.entries)))
+    if data["map"] is not None:
+        m = data["map"]
+        w("\nas a map: path={:s}  path_source={!s}  asset_index={!s}\n".format(
+            json.dumps(m["path"], ensure_ascii=False), m["path_source"], m["asset_index"]))
+    if data["warnings"]:
+        w("\nwarnings:\n")
+        for message in data["warnings"]:
+            w("  - {:s}\n".format(message))
+
+
+# -----------------------------------------------------------------------------
 # Entry point
 
 def _parser():
@@ -441,6 +678,8 @@ def _parser():
     parser.add_argument("--stream", metavar="NAME", help="print the chunk tree of any stream (e.g. ClassDirectory3)")
     parser.add_argument("--preview", type=int, default=DEFAULT_PREVIEW, metavar="BYTES",
                         help="bytes of hex shown per leaf chunk (default {:d})".format(DEFAULT_PREVIEW))
+    parser.add_argument("--decode", action="store_true",
+                        help="with --object: print what the decoders make of the object instead of its chunks")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     return parser
 
@@ -450,7 +689,9 @@ def main(argv=None, out=None) -> int:
     out = out or sys.stdout
     parser = _parser()
     args = parser.parse_args(argv)
-    if args.object is not None:
+    if args.decode and args.object is None:
+        parser.error("--decode needs --object N")
+    if args.object is not None and not args.decode:
         args.chunks = True
     if args.stream is not None and args.object is not None:
         parser.error("--object only applies to the Scene stream; don't combine it with --stream")
@@ -458,6 +699,13 @@ def main(argv=None, out=None) -> int:
         parser.error("--depth must be 0 or more")
     try:
         with maxfile.open(args.file) as mf:
+            if args.decode:
+                data = decoded_object(mf, args.object)
+                if args.json:
+                    _write_json(data, out)
+                else:
+                    _print_decoded_object(data, mf, out)
+                return 0
             if args.chunks or args.stream is not None:
                 return _dump_chunks(mf, args, out)
             data = summary(mf)

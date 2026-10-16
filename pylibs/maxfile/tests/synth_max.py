@@ -142,3 +142,70 @@ def refs_sparse(mapping, first=0):
     for slot, index in sorted(mapping.items()):
         values.extend((slot, index))
     return leaf(0x2035, u32(*values))
+
+
+# -----------------------------------------------------------------------------
+# Geometry (overview.md §6.2, §6.3), parameter blocks (§5.1, §6.4) and materials (§5). Layouts as documented,
+# unverified; material IDs are written 0-based, as the reader assumes (geometry.MATERIAL_ID_DISK_OFFSET).
+
+def poly_mesh(positions, faces, material_ids=None, smoothing=None, channels=None, extra=()):
+    """An Editable Poly 0x08FE container. ``material_ids`` are 0-based disk values; ``channels`` maps
+    channel number -> (map vertices, map faces)."""
+    verts = u32(len(positions)) + b"".join(u32(0) + f32(*p) for p in positions)
+    face_data = [u32(len(faces))]
+    for i, face in enumerate(faces):
+        flags = 0
+        tail = b""
+        if material_ids is not None:
+            flags |= 0x08
+            tail += struct.pack("<H", material_ids[i])
+        if smoothing is not None:
+            flags |= 0x10
+            tail += u32(smoothing[i])
+        face_data.append(u32(len(face), *face) + struct.pack("<H", flags) + tail)
+    children = [leaf(0x0100, verts), leaf(0x011A, b"".join(face_data))]
+    for number, (map_verts, map_faces) in (channels or {}).items():
+        children.append(leaf(0x0124, struct.pack("<i", number)))
+        children.append(leaf(0x0128, u32(len(map_verts)) + b"".join(f32(*v) for v in map_verts)))
+        children.append(leaf(0x012B, b"".join(u32(len(f), *f) for f in map_faces)))
+    children.extend(extra)
+    return cont(0x08FE, *children)
+
+
+def tri_mesh(positions, faces, material_ids=None, smoothing=None, channels=None, class_0x19=False):
+    """An Editable Mesh 0x08FE container (triangles). ``material_ids`` are 0-based disk values."""
+    n = len(faces)
+    material_ids = material_ids or [0] * n
+    smoothing = smoothing or [0] * n
+    children = [
+        leaf(0x0914, u32(len(positions)) + b"".join(f32(*p) for p in positions)),
+        leaf(0x0912, u32(n) + b"".join(u32(*f, smoothing[i]) + struct.pack("<HH", 0, material_ids[i])
+                                       for i, f in enumerate(faces))),
+    ]
+    vert_type, face_type = (0x0916, 0x0918) if class_0x19 else (0x2394, 0x2396)
+    for number, (map_verts, map_faces) in (channels or {}).items():
+        children.append(leaf(0x0924, struct.pack("<i", number)))
+        children.append(leaf(vert_type, u32(len(map_verts)) + b"".join(f32(*v) for v in map_verts)))
+        children.append(leaf(face_type, u32(len(map_faces)) + b"".join(u32(*f) for f in map_faces)))
+    return cont(0x08FE, *children)
+
+
+def param(param_id, payload):
+    """A parameter-block entry: a leaf whose payload starts with the u16 parameter index (overview.md §5.1).
+    The chunk type is a placeholder; the documented rule doesn't depend on it."""
+    return leaf(0x0001, struct.pack("<H", param_id) + payload)
+
+
+def prim_leaf(value):
+    """Primitive parameter, encoding 1 (overview.md §6.4): a leaf longer than 11 bytes, value = last f32."""
+    return leaf(0x0002, b"\0" * 8 + f32(value))
+
+
+def prim_holder(value):
+    """Primitive parameter, encoding 2: a container with a 0x0100 child holding the f32."""
+    return cont(0x0003, leaf(0x0100, f32(value)))
+
+
+def prim_record(value):
+    """Primitive parameter, encoding 3: u16, u32, u16, u16, u8, f32, f32 (value last)."""
+    return leaf(0x0004, struct.pack("<HIHHBff", 1, 2, 3, 4, 5, 0.0, value))

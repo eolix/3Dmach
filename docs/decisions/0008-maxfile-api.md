@@ -61,6 +61,38 @@ and the 64-bit form used in overview.md.
 **Unverified assumptions are marked in code** with `# Unverified (overview.md §N)` so they can be found and
 checked when corpus files arrive.
 
+### Decoded object data
+
+Decoders return dataclasses defined next to them in `maxfile/objects/`, built from plain values (numbers,
+tuples, lists, dicts, strings) and **object indices, never `SceneObject`s**, so they serialise directly
+(`maxfile.report.to_plain`, `maxdump --decode --json`) and can be compared in tests.
+
+- **`MeshData`** (`geometry.py`): `positions`, `faces` as polygons in Max corner order, per-face `material_ids`
+  and `smoothing_groups`, and `map_channels: {channel: MapChannel(vertices, faces)}` with one map face per
+  geometry face and the same corner count. This is the shape the importer needs for bulk mesh building and
+  per-corner UVs; triangle meshes (Editable Mesh, primitive caches) use the same type. Material IDs are
+  converted to Max's 1-based UI numbering at one place, `MATERIAL_ID_DISK_OFFSET`, because the disk base is
+  unknown (overview "To verify" #11) and every consumer (Multi/Sub-Object slot mapping) thinks in UI IDs.
+  The decoder validates instead of trusting: counts are capped to the data present, faces with out-of-range
+  vertices are dropped together with their per-face data, and map channels that don't line up are dropped,
+  each with a warning (also kept in `MeshData.warnings`).
+- **`PrimitiveData`** (`primitives.py`): `kind`, `params` restricted to the names the overview gives, and the
+  cached Max mesh when present. Values the overview doesn't name go to `extra_values` instead of being named by
+  guesswork, so the importer never builds a primitive from a misread parameter.
+- **`ModifierStack`** (`modifiers.py`): base object index plus `ModifierRef`s, top of the stack first.
+  `Scene.resolve_geometry(node)` follows nested wrappers and returns `(base, modifiers)`; it is the one place
+  that encodes the stack-order assumption.
+- **`MaterialData` / `MapData`** (`materials.py`, `maps.py`): `class_name` uses the names the importer's
+  converters dispatch on (`scripts/addons_core/mx_io_max/materials/convert.py`), and `params` / `maps` use their
+  keys, so the Blender side needs no translation table. Only parameters the overview documents are filled; the
+  rest of a material's references are kept as `param_blocks` (indices) and `unassigned_maps` (by slot) for
+  investigation. `sub_ids` is None, not a guessed `1..n`, because the ID list isn't documented; the importer
+  can pass `[None] * len(sub_materials)` to `mx_io_max.material_ids.slots_for_faces`, which then applies Max's
+  wrap-around rule (face ID modulo sub-material count).
+- **Structural readers** for things without documented class IDs: `read_param_block` (generic parameter
+  blocks, values offered as several guesses) and `read_map` (bitmap paths). They are plain functions rather than
+  registered decoders because there is no class ID to register them under.
+
 ## Consequences
 
 - Decoders and the importer work on stable, Blender-free types; tests build synthetic fixtures for them.
@@ -74,5 +106,7 @@ checked when corpus files arrive.
 - Field names in `DllEntry` are still keyed by chunk type (`0x2037`, `0x2039`) and `Node` has no flags (hidden,
   frozen, wire colour) yet; both will change once real files show what the chunks mean. Until a first release,
   the API may change without deprecation.
+- Most material parameters stay empty until real files show their indices; converters fall back to class
+  defaults. Fields added later (map parameters, sub-maps, modifier parameters) extend the same dataclasses.
 
 [MS-CFB]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/

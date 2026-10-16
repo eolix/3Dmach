@@ -42,6 +42,7 @@ import functools
 import os
 
 from . import registry
+from .assets import AssetMetadata, read_asset_metadata
 from .chunks import ChunkStream
 from .classes import (
     CLASS_DIRECTORY_STREAMS,
@@ -145,7 +146,14 @@ class MaxFile:
 
     @functools.cached_property
     def scene(self) -> Scene:
-        return parse_scene(self._optional_stream(SCENE_STREAM), self.class_directory)
+        scene = parse_scene(self._optional_stream(SCENE_STREAM), self.class_directory)
+        scene._asset_loader = lambda: self.asset_metadata
+        return scene
+
+    @functools.cached_property
+    def asset_metadata(self) -> AssetMetadata:
+        """Bitmap paths from the asset metadata stream (best effort, see :mod:`maxfile.assets`)."""
+        return read_asset_metadata(self.container)
 
     @property
     def objects(self) -> list[SceneObject]:
@@ -164,6 +172,8 @@ class MaxFile:
         found.extend(self.dll_directory.warnings)
         found.extend(self.class_directory.warnings)
         found.extend(self.scene.warnings)
+        if "asset_metadata" in self.__dict__:
+            found.extend(self.asset_metadata.warnings)
         return found
 
     def class_usage(self) -> list[ClassUsage]:

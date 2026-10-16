@@ -17,7 +17,7 @@ from ..errors import DecodeError
 from ..registry import decoder
 from ..transform import Transform, euler_xyz_to_quat, quat_from_max
 
-# Value chunks (unverified, overview.md §4.1).
+# Value chunks. Unverified (overview.md §4.1).
 CHUNK_FLOAT_VALUE = 0x2501      # f32 (Bezier Float, below 0x7127); also used by Bezier Scale / TCB Zoom
 CHUNK_POSITION_VALUE = 0x2503   # f32[3]
 CHUNK_ROTATION_VALUE = 0x2504   # f32[4] quaternion, file order (see quat_from_max)

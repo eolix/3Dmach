@@ -33,10 +33,10 @@ from .chunks import Chunk, ChunkStream
 CLASS_DIRECTORY_STREAMS = ("ClassDirectory3", "ClassDirectory")
 DLL_DIRECTORY_STREAM = "DllDirectory"
 
-# Chunk types inside a class directory entry (unverified, overview.md §2.3).
+# Chunk types inside a class directory entry. Unverified (overview.md §2.3).
 CHUNK_CLASS_HEADER = 0x2060     # u32 dll_index, u32 class_id_a, u32 class_id_b, u32 superclass_id
 CHUNK_CLASS_NAME = 0x2042       # UTF-16LE
-# Chunk types inside a DLL directory entry (unverified, overview.md §2.4). Which one is the file name and which
+# Chunk types inside a DLL directory entry. Unverified (overview.md §2.4). Which one is the file name and which
 # the description is not known yet, so they are kept under their chunk types.
 CHUNK_DLL_STRINGS = (0x2037, 0x2039)
 
