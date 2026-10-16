@@ -176,7 +176,7 @@ Build a full custom keymap. Verify each binding against Max's defaults (ask the 
 - [x] **Layer / Scene Explorer** panel mapped onto collections.
 - [x] **Theme**: original dark-grey theme inspired by Max's palette. No copied assets. *(Applied on request (`preferences.mx_apply_theme`).)*
 - [~] **Startup file**: four-viewport layout (Top, Front, Left, Perspective), command panel on the right, time slider and track bar shown as in Max, Max-like grid. *(`screen.mx_max_layout` + applied to new files; checked in GUI screenshots. Viewports should zoom extents after building.)*
-- [~] **Full Max interface chrome**, exactly like Max's default UI, with placeholders for features that don't exist yet: menu bar, main toolbar, ribbon, Scene Explorer with filter bar, viewport layout tab bar, viewport label menus, ViewCube, all six command-panel tabs with every category/rollout/button, time slider, track bar, status line with animation and viewport navigation controls. Spec: `docs/design/max-ui-chrome.md`. *(Maintainer request, 2026-10-16.)*
+- [~] **Full Max interface chrome**: the classic modeling Max interface, exactly like Max, with placeholders for features that don't exist yet: menu bar, main toolbar, Scene Explorer with filter bar, viewport layout tab bar, viewport label menus, ViewCube, all six command-panel tabs with every category/rollout/button, time slider, track bar, status line with animation and viewport navigation controls. Spec: `docs/design/max-ui-chrome.md`. *(Maintainer request, 2026-10-16: classic modeling interface; no ribbon, no animation/object paint/freeform presets.)*
 - [x] **Units**: Max-style units setup dialog (display units + system unit scale) mapped to Blender scene units.
 
 #### 1c. Live primitives (Python first pass)
