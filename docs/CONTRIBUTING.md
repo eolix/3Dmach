@@ -12,6 +12,7 @@ files are never committed.
 | `scripts/addons_core/mx_keymap/` | Max-style hotkeys and navigation |
 | `scripts/addons_core/mx_ui/` | Quad menus, command panel, theme, startup layout |
 | `scripts/addons_core/mx_io_max/` | `.max` importer, Blender side |
+| `scripts/addons_core/mx_primitives/` | Max-style live primitives; `geometry.py` is bpy-free |
 | `scripts/modules/mx_common/` | Helpers shared by the add-ons |
 | `pylibs/maxfile/` | `.max` parser, pure Python, no Blender dependency |
 | `tests/blender/` | Tests that run inside headless Blender |
@@ -34,6 +35,12 @@ Parser tests (plain Python 3.11+, no Blender needed):
 ```sh
 python3 -m pip install pytest
 cd pylibs/maxfile && python3 -m pytest
+```
+
+Primitive geometry and creation-math tests (plain Python, no Blender needed):
+
+```sh
+python3 -m pytest tests/primitives
 ```
 
 Corpus tooling tests, and a listing of your local corpus:
@@ -73,6 +80,7 @@ if __name__ == "__main__":
 
   Code adapted from elsewhere keeps its original copyright lines and licence (it must be GPL-compatible).
 - `pylibs/maxfile` must never import `bpy`, `mathutils` or other Blender modules; a test enforces this.
+  The same goes for `mx_primitives/geometry.py` and `mx_primitives/creation.py`.
 
 ## Changes
 
