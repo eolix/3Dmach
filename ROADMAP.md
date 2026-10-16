@@ -62,7 +62,7 @@ A 3ds Max user should be able to:
 
 ### 4.2 Project code
 
-All project-specific Python lives in bundled add-ons that ship enabled by default. Blender 4.2+ loads bundled add-ons from `scripts/addons_core/`; verify this path for the chosen base version.
+All project-specific Python lives in bundled add-ons that ship enabled by default. Blender 4.2+ loads bundled add-ons from `scripts/addons_core/` (verified for 5.2).
 
 ```
 scripts/addons_core/
@@ -74,9 +74,12 @@ scripts/addons_core/
     materials/        # one module per Max material/map family
     modifiers/        # one module per Max modifier
     primitives/       # one module per Max primitive
-  mx_common/          # shared helpers (units, axis, logging, report UI)
 
-libs/maxfile/         # pure-Python .max parser, NO bpy dependency
+scripts/modules/
+  mx_common/          # shared helpers (units, axis, logging, report UI); a plain module, not an add-on
+
+pylibs/maxfile/       # pure-Python .max parser, NO bpy dependency (not `libs/`: Blender's `lib/` holds precompiled deps)
+  pyproject.toml
   maxfile/
     container.py      # OLE / Compound File reading
     chunks.py         # chunk tree parsing
@@ -95,7 +98,9 @@ docs/
   CONTRIBUTING.md
 ```
 
-**Key rule:** `libs/maxfile` parses `.max` files into plain Python data (dataclasses) and knows nothing about Blender. `mx_io_max` converts that data into Blender objects. This lets most of the importer be unit-tested with plain `pytest`, and lets the parser be reused by other projects.
+See `docs/decisions/0002-repo-layout.md` for why this differs slightly from the first draft (`pylibs/`, `mx_common` location) and how `maxfile` reaches Blender.
+
+**Key rule:** `pylibs/maxfile` parses `.max` files into plain Python data (dataclasses) and knows nothing about Blender. `mx_io_max` converts that data into Blender objects. This lets most of the importer be unit-tested with plain `pytest`, and lets the parser be reused by other projects.
 
 The module name prefix `mx_` is a placeholder; rename when the project name is decided.
 
@@ -109,14 +114,14 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 Goal: a forked, buildable, testable repo that contributors can join.
 
-- [ ] Fork Blender at the chosen LTS; record version in `docs/decisions/0001-base-version.md`.
+- [~] Fork Blender at the chosen LTS; record version in `docs/decisions/0001-base-version.md`. *(Proposed 5.2 LTS, `v5.2.2`; branch `mx/main`. Waiting for confirmation and a hosted remote.)*
 - [ ] Confirm a clean build on Windows; document build steps in `docs/BUILDING.md`.
 - [ ] Rename app branding to `PROJECT_NAME` (window title, splash text, about box). Keep Blender credit and licence notices intact.
-- [ ] Create the add-on and `libs/maxfile` skeletons from §4.2, with `pytest` wired up.
-- [ ] Headless test runner: a script that runs every test in `tests/blender/` via `blender -b --factory-startup --python ...` and exits non-zero on failure.
-- [ ] CI (GitHub Actions or similar): build on at least one platform, run `pytest libs/maxfile`, run headless Blender tests.
-- [ ] `README.md`, `CONTRIBUTING.md` (how to build, how to add a modifier/material/primitive decoder, how to submit test files), issue templates ("unsupported .max feature", "bug", "test file submission").
-- [ ] Set up `tests/corpus/` with its manifest format (§6).
+- [x] Create the add-on and `pylibs/maxfile` skeletons from §4.2, with `pytest` wired up.
+- [x] Headless test runner (`tests/blender/run_tests.py`): a script that runs every test in `tests/blender/` via `blender -b --factory-startup --python ...` and exits non-zero on failure.
+- [ ] CI (GitHub Actions or similar): build on at least one platform, run `pytest pylibs/maxfile` and `pytest tests/corpus`, run headless Blender tests.
+- [~] `README.md`, `CONTRIBUTING.md` (how to build, how to add a modifier/material/primitive decoder, how to submit test files), issue templates ("unsupported .max feature", "bug", "test file submission"). *(First draft of `docs/CONTRIBUTING.md`; README waits on the project name, issue templates on the hosting choice.)*
+- [x] Set up `tests/corpus/` with its manifest format (§6). *(`tests/corpus/README.md`, checked by `tests/corpus/check_manifest.py`.)*
 
 **Done when:** a new contributor can clone, build, run the tests and see them pass by following the docs.
 
@@ -310,7 +315,7 @@ tests/corpus/
     notes.md             # Max version, renderer, what the case tests
 ```
 
-`manifest.toml` records per case: Max version, renderer, features exercised, expected pass/fail status.
+`manifest.toml` records per case: Max version, renderer, features exercised, expected pass/fail status, licence and contributor. The exact format is in `tests/corpus/README.md`.
 
 Automated checks per case:
 
@@ -344,11 +349,14 @@ Before any C++ change (Phase 3), write `docs/design/<feature>.md` covering: the 
 ## 10. Open questions for the maintainer
 
 - [ ] Project name (no Autodesk trademarks).
-- [ ] Base Blender LTS version.
+- [ ] Base Blender LTS version. *Proposed: 5.2 LTS (`v5.2.2`), see `docs/decisions/0001-base-version.md`.*
 - [ ] Which renderers' materials matter most first (V-Ray, Corona, Arnold, Physical)?
 - [ ] Who can produce test files and reference exports from 3ds Max, and which Max versions?
 - [ ] Target platforms and order (proposed: Windows → Linux → macOS).
-- [ ] Repo hosting and CI provider.
+- [ ] Repo hosting and CI provider. (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
+- [ ] Layout changes in `docs/decisions/0002-repo-layout.md` (`pylibs/maxfile`, `mx_common` in `scripts/modules/`): OK?
+- [ ] Should `.max` and other binary corpus files go through Git LFS? Best decided before the first case is committed, since moving files into LFS later rewrites history or leaves the old blobs in it.
+- [ ] Licence of the prior-art importer: `io_scene_max` 1.9.2's source headers say GPL-2.0-or-later, its extension manifest says GPL-3.0-or-later. Either is compatible, but if we copy code from it we should know which applies (ask the author when contacting them, §2a).
 
 ---
 
