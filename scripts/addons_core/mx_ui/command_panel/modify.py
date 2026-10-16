@@ -589,11 +589,9 @@ def draw_editable_rollouts(layout, context, obj, rollouts):
             widgets.draw_rollout(layout, context, data, SPECIALS)
 
 
-def draw_base_parameters(layout, context, obj, editable_poly=True):
+def draw_base_parameters(layout, context, obj):
     """The rollouts of the base stack entry."""
     if obj.type in {'MESH', 'CURVE'} and not is_live_primitive(obj):
-        if not editable_poly:
-            return
         if obj != context.active_object:
             col = layout.column()
             col.active = False

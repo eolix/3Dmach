@@ -539,11 +539,11 @@ def draw_name_and_color(layout, context):
     sub.prop(state, "next_color", text="")
 
 
-def draw_created_object(layout, context, state):
-    """Max shows the new object's creation rollouts while its creation type is active."""
+def draw_created_object(layout, context, state, sub):
+    """Max shows the new object's creation rollouts while its creation type is active (and shown)."""
     obj = context.active_object
     button = catalog.CREATE_BY_KEY.get(state.create_active)
-    if button is None or obj is None or not is_highlighted(state, button, obj):
+    if button is None or obj is None or not is_highlighted(state, button, obj) or button not in sub.buttons:
         return
     if button.requires == catalog.PRIMITIVES:
         kind = button.props.get("kind")
@@ -559,9 +559,11 @@ def draw_created_object(layout, context, state):
     if obj.name != state.create_object:
         return
     from . import modify
+    if obj.type in {'MESH', 'CURVE'} and not modify.is_live_primitive(obj):
+        return
     body = widgets.rollout(layout, "create_parameters", "Parameters")
     if body is not None:
-        modify.draw_base_parameters(body, context, obj, editable_poly=False)
+        modify.draw_object_parameters(body, context, obj)
 
 
 def draw(layout, context):
@@ -574,7 +576,7 @@ def draw(layout, context):
     layout.prop(state, subcategory_prop(category), text="")
     draw_object_type(layout, context, state, category, sub)
     draw_name_and_color(layout, context)
-    draw_created_object(layout, context, state)
+    draw_created_object(layout, context, state, sub)
 
 
 def register():

@@ -430,6 +430,19 @@ class DrawTest(unittest.TestCase):
         modify.draw_stack_context_menu(holder, types.SimpleNamespace(button_operator=op))
         self.assertIn("object.mx_collapse_stack", [c[1]["operator"] for c in holder.layout.calls("operator")])
 
+    def test_blender_tool_panels_hidden_in_command_panel(self):
+        from mx_ui import command_panel
+        panels = list(command_panel.blender_tool_panels())
+        self.assertIn(bpy.types.VIEW3D_PT_active_tool_duplicate, panels)
+        space = types.SimpleNamespace(type='PROPERTIES', **{
+            name: name == "show_properties_tool" for name in command_panel.PROPERTIES_TABS})
+        self.assertTrue(command_panel.is_command_panel_space(space))
+        ctx = types.SimpleNamespace(space_data=space, area=types.SimpleNamespace(type='PROPERTIES'))
+        self.assertFalse(bpy.types.VIEW3D_PT_active_tool_duplicate.poll(ctx))
+        # An ordinary Properties editor keeps Blender's panels.
+        setattr(space, next(n for n in command_panel.PROPERTIES_TABS if n != "show_properties_tool"), True)
+        self.assertTrue(bpy.types.VIEW3D_PT_active_tool_duplicate.poll(ctx))
+
     def test_layout_errors_are_caught(self):
         # The recording layout rejects unknown operators: makes sure the checks above mean something.
         with self.assertRaises(LayoutError):

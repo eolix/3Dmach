@@ -108,13 +108,63 @@ classes = (
 )
 
 
+# -----------------------------------------------------------------------------
+# Blender's own Tool panels (Active Tool, Options, Workspace, ...) are hidden in dedicated command panel
+# editors, so the command panel looks like Max's: their poll is wrapped while the add-on is enabled.
+
+_wrapped_polls = []
+
+
+def _all_subclasses(cls):
+    for sub in cls.__subclasses__():
+        yield sub
+        yield from _all_subclasses(sub)
+
+
+def blender_tool_panels():
+    """Blender's registered 3D viewport sidebar panels of the Tool category (not our own)."""
+    for cls in set(_all_subclasses(Panel)):
+        if (getattr(cls, "bl_space_type", None) == 'VIEW_3D' and getattr(cls, "bl_region_type", None) == 'UI'
+                and getattr(cls, "bl_category", None) == "Tool" and not getattr(cls, "bl_parent_id", "")
+                and cls.__module__.startswith("bl_ui") and getattr(cls, "is_registered", False)
+                and hasattr(cls, "poll")):
+            yield cls
+
+
+def _hiding_poll(original):
+    def poll(cls, context):
+        if is_command_panel_space(getattr(context, "space_data", None)):
+            return False
+        return original.__func__(cls, context)
+    return classmethod(poll)
+
+
+def _hide_blender_tool_panels():
+    for cls in blender_tool_panels():
+        own = cls.__dict__.get("poll")
+        original = own if own is not None else classmethod(getattr(cls, "poll").__func__)
+        cls.poll = _hiding_poll(original)
+        _wrapped_polls.append((cls, own))
+
+
+def _restore_blender_tool_panels():
+    for cls, own in reversed(_wrapped_polls):
+        if own is not None:
+            cls.poll = own
+        else:
+            del cls.poll
+    _wrapped_polls.clear()
+
+
 def register():
     for mod in _modules:
         if hasattr(mod, "register"):
             mod.register()
+    _hide_blender_tool_panels()
 
 
 def unregister():
+    _restore_blender_tool_panels()
     for mod in reversed(_modules):
         if hasattr(mod, "unregister"):
             mod.unregister()
