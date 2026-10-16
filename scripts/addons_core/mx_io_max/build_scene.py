@@ -224,6 +224,10 @@ class SceneBuilder:
         return mesh
 
     def _primitive_mesh(self, data, name):
+        # Max's own cached mesh is exact; rebuilding a live primitive would use default segment counts
+        # until those parameters are decoded.
+        if data.cached_mesh is not None:
+            return self._mesh_from_data(data.cached_mesh, name)
         primitives = None
         try:
             import mx_primitives as primitives
@@ -239,8 +243,6 @@ class SceneBuilder:
                 bpy.data.objects.remove(obj)
                 self.report.add_imported("live primitives")
                 return mesh
-        if data.cached_mesh is not None:
-            return self._mesh_from_data(data.cached_mesh, name)
         self.report.add_unsupported("primitive", data.kind)
         return bpy.data.meshes.new(name)
 
