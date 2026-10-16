@@ -994,6 +994,76 @@ class LayersAndGroupsTest(unittest.TestCase):
         self.assertAlmostEqual(a.matrix_world.translation.x, 2.0, places=5)
 
 
+class SiblingAddonsTest(unittest.TestCase):
+    """With ``mx_keymap`` and ``mx_primitives`` enabled, their operators and API are used."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.enabled = []
+        for name in ("mx_keymap", "mx_primitives"):
+            if name in _runner_util.project_addons():
+                enable(name)
+                cls.enabled.append(name)
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in reversed(cls.enabled):
+            addon_utils.disable(name, default_set=True)
+
+    def setUp(self):
+        if len(self.enabled) != 2:
+            self.skipTest("mx_keymap and mx_primitives are needed")
+        clear_scene()
+
+    def add_box(self):
+        self.assertEqual(bpy.ops.mesh.mx_primitive_add(kind='BOX'), {'FINISHED'})
+        return bpy.context.view_layer.objects.active
+
+    def test_quad_menu_uses_keymap_operators(self):
+        add_cube()
+        menu = types.SimpleNamespace(layout=new_layout())
+        mx_ui().quad_menu.VIEW3D_MT_mx_quad.draw(menu, fake_context(mode='OBJECT'))
+        ops = {c[1]["operator"] for c in menu.layout.calls("operator")}
+        self.assertIn("mx_keymap.subobject_level", ops)
+        self.assertIn("mx_keymap.clone", ops)
+        self.assertNotIn("object.mx_ui_subobject_level", ops)
+
+    def test_create_and_modify_live_primitive(self):
+        from mx_ui.command_panel import create, modify
+        layout = new_layout()
+        create.draw_geometry(layout, fake_context())
+        kinds = [c for c in layout.calls("operator") if c[1]["operator"] == "mesh.mx_primitive_add"]
+        self.assertEqual(len(kinds), len(create.PRIMITIVES))
+        box = self.add_box()
+        self.assertTrue(mx_ui().utils.is_live_primitive(box))
+        self.assertEqual(modify.base_label(box), "Box")
+        layout = new_layout()
+        modify.draw(layout, fake_context(active_object=box, object=box))
+        # The base entry is selected and shows the primitive's own parameters.
+        self.assertTrue(any(c[1].get("property") == "length" for c in layout.calls("prop")))
+
+    def test_convert_menu_and_collapse(self):
+        box = self.add_box()
+        menu = types.SimpleNamespace(layout=new_layout())
+        mx_ui().quad_menu.VIEW3D_MT_mx_quad_convert.draw(menu, fake_context(active_object=box))
+        ops = [c[1]["operator"] for c in menu.layout.calls("operator")]
+        self.assertEqual(ops[0], "object.mx_convert_to_editable_poly")
+        mx_ui().modifier_map.add_modifier(bpy.context, box, "TURBOSMOOTH")
+        self.assertEqual(bpy.ops.object.mx_collapse_stack(), {'FINISHED'})
+        self.assertFalse(mx_ui().utils.is_live_primitive(box))
+        self.assertEqual(len(box.modifiers), 0)
+
+    def test_name_and_color_apply_to_primitives(self):
+        state = bpy.context.window_manager.mx_ui
+        mx_ui().wirecolor.reset_known_objects()
+        state.next_name = "Crate"
+        state.next_color = (0.1, 0.2, 0.3, 1.0)
+        box = self.add_box()
+        bpy.context.view_layer.update()
+        self.assertEqual(box.name, "Crate")
+        self.assertAlmostEqual(box.color[2], 0.3, places=5)
+
+
 class KeymapTest(unittest.TestCase):
 
     def test_binding_choice(self):

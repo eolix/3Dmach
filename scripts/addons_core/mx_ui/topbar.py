@@ -160,6 +160,8 @@ def draw_main_toolbar(self, context):
     row = layout.row(align=True)
     for tool_id, icon, _label in _TOOLS:
         row.operator("wm.tool_set_by_id", text="", icon=icon).name = tool_id
+    if utils.keymap_operator_available("MX_KEYMAP_OT_select_by_name"):
+        row.operator("mx_keymap.select_by_name", text="", icon='VIEWZOOM')
 
     row = layout.row(align=True)
     row.ui_units_x = 4.5
@@ -175,7 +177,11 @@ def draw_main_toolbar(self, context):
     row.operator("object.align", text="", icon='ALIGN_CENTER')
 
     row = layout.row(align=True)
-    row.operator(SCREEN_OT_mx_material_editor.bl_idname, text="", icon='MATERIAL')
+    if utils.keymap_operator_available("MX_KEYMAP_OT_open_editor"):
+        row.operator("mx_keymap.open_editor", text="", icon='MATERIAL').editor = 'MATERIAL'
+        row.operator("mx_keymap.open_editor", text="", icon='PREFERENCES').editor = 'RENDER'
+    else:
+        row.operator(SCREEN_OT_mx_material_editor.bl_idname, text="", icon='MATERIAL')
     row.operator("render.render", text="", icon='RENDER_STILL')
 
 

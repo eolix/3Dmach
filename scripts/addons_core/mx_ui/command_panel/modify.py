@@ -11,14 +11,16 @@ The stack is drawn the Max way: the base object at the bottom and modifiers abov
 the base object (remembered in ``state.stack_base_selected``).
 
 For live primitives the base entry's parameters come from the ``mx_primitives`` add-on, called through
-its module (``sys.modules["mx_primitives"]``), which offers:
+its module (``sys.modules["mx_primitives"]``), using:
 
-- ``draw_parameters(layout, obj)`` (required): draws the primitive's parameters; returning ``False`` means
-  "not a live primitive", and the base entry is drawn as a plain mesh;
-- ``is_live_primitive(obj)`` (optional): checked first when present;
-- ``primitive_label(obj)`` (optional): the base entry's name ("Box", "Sphere", ...);
-- ``is_primitive_modifier(mod)`` (optional): modifiers that implement the primitive (e.g. a Geometry
-  Nodes modifier), folded into the base entry instead of being listed.
+- ``is_live_primitive(obj)``, ``get_parameters(obj)`` and ``KINDS``: whether the base is a live primitive
+  and its name ("Box", "Sphere", ...);
+- ``draw_parameters(layout, obj)``: draws the primitive's parameters (``False`` means "not a primitive",
+  and the base entry is drawn as a plain mesh);
+- optionally ``primitive_label(obj)`` and ``is_primitive_modifier(mod)`` (modifiers implementing the
+  primitive, folded into the base entry), should a later version provide them.
+
+Collapse first calls ``object.mx_convert_to_editable_poly`` on live primitives.
 """
 
 import bpy
@@ -73,13 +75,13 @@ def base_label(obj):
     mod = _primitives()
     if mod is not None and is_live_primitive(obj):
         label = getattr(mod, "primitive_label", None)
-        if label is not None:
-            try:
-                text = label(obj)
-                if text:
-                    return text
-            except Exception:
-                pass
+        try:
+            if label is not None:
+                return label(obj) or "Primitive"
+            kind, _params = mod.get_parameters(obj)
+            return dict((k, name) for k, name, _desc in mod.KINDS).get(kind, "Primitive")
+        except Exception:
+            return "Primitive"
     return BASE_LABELS.get(obj.type, obj.type.title())
 
 
@@ -168,10 +170,14 @@ def collapse_stack(context, obj):
     """Apply every modifier (Max's Collapse All): the object becomes an Editable Poly with the result."""
     if obj.type not in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}:
         raise ValueError("Only geometry can be collapsed")
+    override = utils.object_context_override(context, obj)
     if obj.mode != 'OBJECT':
-        with context.temp_override(**utils.object_context_override(context, obj)):
+        with context.temp_override(**override):
             bpy.ops.object.mode_set(mode='OBJECT')
-    with context.temp_override(**utils.object_context_override(context, obj)):
+    with context.temp_override(**override):
+        if utils.is_live_primitive(obj):
+            # Otherwise the primitive's parameters would later regenerate the mesh over the collapsed result.
+            bpy.ops.object.mx_convert_to_editable_poly()
         bpy.ops.object.convert(target='MESH')
     if END_RESULT_KEY in obj:
         del obj[END_RESULT_KEY]
@@ -316,8 +322,10 @@ def draw_base_parameters(layout, context, obj):
         if body is not None:
             row = body.row(align=True)
             row.scale_y = 1.3
-            for level, label, icon in SUBOBJECT_LEVELS[1:]:
-                row.operator("object.mx_ui_subobject_level", text="", icon=icon).level = level
+            current = utils.keymap_subobject_level(context)
+            for level, _label, icon in SUBOBJECT_LEVELS[1:]:
+                depress = current is not None and current == utils.SUBOBJECT_LEVEL_NUMBERS[level]
+                utils.subobject_operator(row, level, icon=icon, depress=depress)
             sub = body.row()
             sub.active = False
             sub.label(text="{:d} vertices, {:d} polygons".format(len(data.vertices), len(data.polygons)))

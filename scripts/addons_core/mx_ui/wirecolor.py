@@ -49,7 +49,8 @@ def assign_new_object(context, obj, rng=None):
     if state is not None and state.next_name:
         obj.name = state.next_name
         state.next_name = ""
-    if not _is_default_color(obj):
+    chosen = state is not None and state.next_color_initialized
+    if not _is_default_color(obj) and not (chosen and utils.is_live_primitive(obj)):
         return
     use_random = prefs is None or prefs.random_wire_colors
     if state is not None and state.next_color_initialized:

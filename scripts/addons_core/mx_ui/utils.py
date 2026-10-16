@@ -131,3 +131,44 @@ def primitives_module():
     if not primitives_operator_available():
         return None
     return sys.modules.get(PRIMITIVES_MODULE)
+
+
+def is_live_primitive(obj):
+    mod = primitives_module()
+    if mod is None or obj is None:
+        return False
+    try:
+        return bool(mod.is_live_primitive(obj))
+    except Exception:
+        return False
+
+
+# -----------------------------------------------------------------------------
+# Sibling add-on: keymap. Its operators are used where they exist, so behaviour matches the hotkeys.
+
+KEYMAP_SUBOBJECT_OPERATOR = "MX_KEYMAP_OT_subobject_level"
+
+# Max sub-object level numbers (keys 1-6) as used by `mx_keymap.subobject_level`.
+SUBOBJECT_LEVEL_NUMBERS = {'VERTEX': 1, 'EDGE': 2, 'BORDER': 3, 'POLYGON': 4, 'ELEMENT': 5, 'TOP': 6}
+
+
+def keymap_operator_available(type_name):
+    return hasattr(bpy.types, type_name)
+
+
+def keymap_subobject_level(context):
+    """The sub-object level `mx_keymap` tracks (0 = object level), or None without that add-on."""
+    if not keymap_operator_available(KEYMAP_SUBOBJECT_OPERATOR):
+        return None
+    return getattr(context.window_manager, "mx_keymap_subobject_level", None)
+
+
+def subobject_operator(layout, level, text="", icon='NONE', depress=False):
+    """A button switching to a sub-object level, through `mx_keymap` when it is enabled."""
+    if keymap_operator_available(KEYMAP_SUBOBJECT_OPERATOR):
+        props = layout.operator("mx_keymap.subobject_level", text=text, icon=icon, depress=depress)
+        props.level = SUBOBJECT_LEVEL_NUMBERS[level]
+    else:
+        props = layout.operator("object.mx_ui_subobject_level", text=text, icon=icon, depress=depress)
+        props.level = level
+    return props

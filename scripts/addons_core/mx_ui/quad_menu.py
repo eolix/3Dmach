@@ -185,8 +185,10 @@ def quads_for_mode(mode):
 
 
 def _resolve_op(item):
-    """The clone item uses the clone operator from `mx_keymap` when it exists, else a plain duplicate."""
-    if item.idname == "object.mx_clone" and not hasattr(bpy.types, "OBJECT_OT_mx_clone"):
+    """Use the `mx_keymap` operators (same behaviour as the hotkeys) when that add-on is enabled."""
+    if item.idname == "object.mx_clone":
+        if utils.keymap_operator_available("MX_KEYMAP_OT_clone"):
+            return Op("mx_keymap.clone", item.text, item.icon)
         return Op("object.duplicate_move", item.text, item.icon)
     return item
 
@@ -196,6 +198,8 @@ def draw_item(layout, item):
         layout.separator()
     elif isinstance(item, Sub):
         layout.menu(item.menu, text=item.text, icon=item.icon)
+    elif item.idname == "object.mx_ui_subobject_level":
+        utils.subobject_operator(layout, item.props["level"], text=item.text, icon=item.icon)
     else:
         item = _resolve_op(item)
         props = layout.operator(item.idname, text=item.text, icon=item.icon)
@@ -233,10 +237,15 @@ class VIEW3D_MT_mx_quad_convert(Menu):
     bl_idname = "VIEW3D_MT_mx_quad_convert"
     bl_label = "Convert To"
 
-    def draw(self, _context):
+    def draw(self, context):
         layout = self.layout
-        layout.operator("object.convert", text="Convert to Editable Mesh").target = 'MESH'
-        layout.operator("object.convert", text="Convert to Editable Poly").target = 'MESH'
+        if utils.is_live_primitive(context.active_object):
+            # Keeps the geometry and drops the primitive's parameters (operator of `mx_primitives`).
+            layout.operator("object.mx_convert_to_editable_poly", text="Convert to Editable Poly")
+            layout.operator("object.mx_convert_to_editable_poly", text="Convert to Editable Mesh")
+        else:
+            layout.operator("object.convert", text="Convert to Editable Poly").target = 'MESH'
+            layout.operator("object.convert", text="Convert to Editable Mesh").target = 'MESH'
         layout.operator("object.convert", text="Convert to Editable Spline").target = 'CURVE'
 
 
@@ -284,7 +293,8 @@ def set_subobject_level(context, obj, level):
 
 
 class OBJECT_OT_mx_ui_subobject_level(Operator):
-    """Switch to a Max sub-object level (Vertex, Edge, Border, Polygon, Element) or back to the object"""
+    """Switch to a Max sub-object level (Vertex, Edge, Border, Polygon, Element) or back to the object.
+    The quad menu and command panel use the Max-Style Keymap's fuller version when that add-on is enabled"""
     bl_idname = "object.mx_ui_subobject_level"
     bl_label = "Sub-Object Level"
     bl_options = {'REGISTER', 'UNDO'}

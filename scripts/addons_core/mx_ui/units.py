@@ -20,19 +20,15 @@ Display: Generic Units  ``system = 'NONE'``
 The mapping functions are plain Python so they can be tested without a dialog.
 """
 
-import bpy
 from bpy.props import EnumProperty, FloatProperty
 from bpy.types import Operator
 
-# Meters per system unit.
-SYSTEM_UNITS = (
-    ('INCHES', "Inches", 0.0254),
-    ('FEET', "Feet", 0.3048),
-    ('MILES', "Miles", 1609.344),
-    ('MILLIMETERS', "Millimeters", 0.001),
-    ('CENTIMETERS', "Centimeters", 0.01),
-    ('METERS', "Meters", 1.0),
-    ('KILOMETERS', "Kilometers", 1000.0),
+from mx_common.units import METRES_PER_UNIT
+
+# System units (Max's "1 Unit = N <unit>"), with their length in meters (shared with the importer).
+SYSTEM_UNITS = tuple(
+    (name.upper(), name.title(), METRES_PER_UNIT[name])
+    for name in ("inches", "feet", "miles", "millimeters", "centimeters", "meters", "kilometers")
 )
 METERS_PER_UNIT = {key: meters for key, _label, meters in SYSTEM_UNITS}
 

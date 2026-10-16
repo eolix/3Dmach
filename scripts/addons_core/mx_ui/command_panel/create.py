@@ -314,9 +314,10 @@ def draw_geometry(layout, _context):
     body.label(text="Standard Primitives")
     grid = _button_grid(body)
     grid.enabled = available
+    icons = getattr(utils.primitives_module(), "ICONS", {})
     for kind, label in PRIMITIVES:
         if available:
-            props = grid.operator(utils.PRIMITIVE_OPERATOR_IDNAME, text=label)
+            props = grid.operator(utils.PRIMITIVE_OPERATOR_IDNAME, text=label, icon=icons.get(kind, 'NONE'))
             props.kind = kind
         else:
             grid.label(text=label)
