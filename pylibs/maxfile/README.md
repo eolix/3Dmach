@@ -18,8 +18,13 @@ The Compound File container is read according to Microsoft's public [MS-CFB] spe
 
 Phase 2b core (see `ROADMAP.md`): container, chunk trees, gzip-compressed streams, class and DLL directories,
 scene objects and references, nodes (name, parent, object offset, controller / object / material / layer
-slots), hierarchy, and the static value of the common transform controllers. Geometry, materials, modifiers,
-units and node flags (hidden, frozen, wire colour) are not decoded yet.
+slots), hierarchy, and the static value of the common transform controllers.
+
+First decoders (Phase 2c/2e groundwork): Editable Poly / PolyMeshObject / Editable Mesh meshes, standard
+primitives (documented parameters and cached meshes), modifier-stack wrappers, generic parameter blocks,
+materials (names, the few documented parameters, sub-materials) and bitmap paths. Not decoded yet: modifier
+parameters, other map types, units, and node flags (hidden, frozen, wire colour: nothing about them is
+documented yet).
 
 **Everything above the container follows `docs/format/overview.md`, which has not been checked against real
 files yet.** Each assumption the code relies on is marked with a comment:
@@ -63,6 +68,10 @@ with maxfile.open("scene.max") as mf:          # a path, or bytes holding the fi
 | `maxfile.classes.ClassID` | Two 32-bit words `a`, `b`; `str()` → `0x1BF8338D, 0x192F6098`, `.u64_str()` → `0x192F60981BF8338D`. |
 | `maxfile.transform.Transform` | `position (x, y, z)`, `rotation (w, x, y, z)`, `scale`; `.matrix()` → 4×4 rows, column vectors. |
 | `maxfile.registry` | Known class names (`known_class()`), decoders (`@decoder`, `find_decoder()`, `registered_decoders()`). |
+| `Scene.resolve_geometry(node)` | `(base_object, [modifier objects, top of stack first])` through modifier-stack wrappers. |
+| `Scene.param_block(obj)` | Any object read as a generic parameter block (`ParamBlockData`). |
+| `MaxFile.asset_metadata` | `AssetMetadata`: best-effort bitmap paths from the asset metadata stream. |
+| `maxfile.report` | `to_plain(value)` (JSON-ready copy of decoded data), `format_value(value)` (readable text). |
 | `maxfile.MaxFileError` | Base of every content error: `ContainerError`, `NotCompoundFileError`, `UnsupportedFormatError`, `StreamNotFoundError`, `ChunkError`, `DecodeError`. |
 
 Errors: a file that can't be read at all (not a Compound File, broken container, no `Scene` stream) raises a
@@ -72,6 +81,29 @@ out of range, a controller that can't be decoded) is kept as far as possible and
 
 The data model and the reasons behind it are in `docs/decisions/0008-maxfile-api.md`.
 
+### Decoded data
+
+`mf.scene.decode(obj)` runs the decoder registered for the object's class and returns one of these plain
+dataclasses (or None, with the reason in `warnings`). Everything is from `docs/format/overview.md` and
+unverified; fields the overview says nothing about are left empty rather than guessed.
+
+| Class(es) | Returns | Contents |
+|---|---|---|
+| Editable Poly, PolyMeshObject, Editable Mesh | `objects.geometry.MeshData` | `positions`, `faces` (polygons, Max corner order), `material_ids` (1-based), `smoothing_groups` (0 = none), `map_channels` (`{channel: MapChannel(vertices, faces)}`, channels as stored: 0 colour, 1+ UV, -1/-2 illum/alpha), `source`, `warnings`. |
+| Box, Sphere, Cylinder, Torus, Cone, Plane, primitives 0x14 / 0x16 / 0x19 | `objects.primitives.PrimitiveData` | `kind` (`"BOX"`, `"SPHERE"`, `"CYLINDER"`, `"TORUS"`, `"CONE"`, `"PLANE"`, `"UNKNOWN"`), `params` (`length`, `width`, `height`, `radius`, `radius1`, `radius2`: only what the overview names), `cached_mesh` (`MeshData` or None), `encoding`, `extra_values` (unnamed further values), `param_block`. |
+| Derived objects 0x2032 / 0x2033 | `objects.modifiers.ModifierStack` | `base` (object index), `modifiers` (`ModifierRef(object_index, class_name, enabled=None)`, top of stack first; `bottom_up()` for apply order). |
+| Materials of overview §5 | `objects.materials.MaterialData` | `class_name` (the importer converters' names: `Standardmaterial`, `PhysicalMaterial`, `VRayMtl`, `CoronaPhysicalMtl`, `CoronaMtl`, `ai_standard_surface`, `Multimaterial`, ...), `name`, `params` (VRayMtl `diffuse` / `reflection_glossiness`, Arnold sockets), `maps` (Arnold `*_shader` sockets), `sub_materials`, `sub_ids` (None: not documented), `unassigned_maps` (by reference slot), `param_blocks`. |
+| Transform controllers | tuples / `Transform` | See `objects/controllers.py`. |
+
+Maps have no documented class IDs, so they are read structurally: `objects.maps.read_map(obj, ctx)` gives a
+`MapData(class_name, name, params, path, sub_maps, path_source, asset_index)` for any object, and materials use
+it for the bitmap-like objects they reference. `objects.paramblock.read_param_block(obj)` gives
+`ParamBlockData(entries=[ParamEntry(param_id, chunk_type, raw, guessed)])` with float / int / colour readings of
+each entry's payload end.
+
+Material IDs: the disk value plus `objects.geometry.MATERIAL_ID_DISK_OFFSET` (1, assuming 0-based storage). If
+real files turn out to store 1-based IDs, that constant is the one thing to change.
+
 ## maxdump
 
 ```sh
@@ -79,12 +111,15 @@ python -m maxfile.dump scene.max                          # summary (or `maxdump
 python -m maxfile.dump scene.max --chunks                 # chunk tree of every scene object
 python -m maxfile.dump scene.max --chunks --object 12 --depth 2
 python -m maxfile.dump scene.max --stream ClassDirectory3 # chunk tree of any stream
+python -m maxfile.dump scene.max --object 12 --decode     # what the decoders make of object 12
 python -m maxfile.dump scene.max --json                   # any mode, as JSON
 ```
 
 The summary lists the streams (stored and decompressed size, gzip), the class directory (both class-ID forms,
-superclass, DLL, object count, registry name, decoder), the DLL directory, the node tree, classes the registry
-doesn't know (with counts), objects without a decoder, and warnings. `docs/format/maxdump.md` explains the output
+superclass, DLL, object count, registry name, decoder), the DLL directory, the node tree (with resolved geometry
+and modifier counts), decoded geometry (vertex / face / channel counts), primitive parameters, modifier stacks,
+the material tree with bitmap paths, classes the registry doesn't know (with counts), objects without a decoder,
+and warnings. `--decode` prints an object's decoded dataclass, plus generic parameter-block and map readings. `docs/format/maxdump.md` explains the output
 and how to use it to work out a new class.
 
 ## Adding a decoder

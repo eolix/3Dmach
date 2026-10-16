@@ -54,8 +54,46 @@ file; `known=` is the name in our registry (`maxfile/registry.py`), and `decoder
 The node tree, indented by depth. `transform=?` means the transform controller couldn't be decoded (see the
 warnings). `offset_pos=` / `offset_rot_wxyz=` / `offset_scale=` are the object offset (pivot).
 
+Node lines also show `geometry=` when the node's object is a modifier-stack wrapper (the base object found
+through it) and `modifiers=` with the number of modifiers.
+
+Then come the **decoded** sections (all from the unverified layouts of overview.md §5-6):
+
+```
+== Geometry (2) ==
+  [0] Editable Poly  source=editable_poly vertices=8 faces=6 corners=24 channels=1 material_ids=1,2 smoothing=yes
+== Primitives (1) ==
+  [5] Box  kind=BOX  length=10  width=20  height=30  encoding=0x0100+leaf+record  cached_mesh=(vertices=3 ...)
+== Modifier stacks (1, modifiers listed top of stack first) ==
+  [3] Derived object? (io_scene_max: "shell")  base=[0] Editable Poly  modifiers=[2] Mod
+== Materials used by nodes (3 rows) ==
+  [12] Multimaterial (no name)  sub_materials=2  sub_ids=None
+    [9] VRayMtl "Wood"  diffuse=(0.5, 0.25, 0.125)  reflection_glossiness=0.8  slot1=[7] Bitmap? path="C:\\maps\\wood.png"
+```
+
+`material_ids=` lists the distinct face material IDs (1-based, see `MATERIAL_ID_DISK_OFFSET`). `problems=N`
+counts what the mesh decoder had to drop. `encoding=` says which of the three primitive parameter encodings of
+overview §6.4 were found; `extra_values=` are values beyond the parameters the overview names. Material maps
+show up as `slotN=` (a referenced bitmap whose parameter is unknown) or under a parameter key.
+
 The remaining sections list **classes not in the registry** with their object counts (candidates for new
 registry entries and decoders), classes that were **asked for but have no decoder**, and **warnings**.
+
+### One object, decoded
+
+```sh
+maxdump scene.max --object 9 --decode           # text
+maxdump scene.max --object 9 --decode --json    # the full dataclass as JSON
+```
+
+Prints the object's references, its node data if it is a node, the value its decoder returns (lists cut after a
+few items in text mode, complete in JSON), and two generic readings that work for any class:
+
+- **as a parameter block**: every leaf whose payload starts with a u16, with that u16 as `id=` and the payload's
+  end read as `float=`, `int=`, `color=` and `rgba_color=` (overview §5.1's rule). Only one of these readings is
+  right for a given entry, and which one is for you to work out;
+- **as a map**, when the object or one of its references holds a bitmap path (`0x1230`) or asset index
+  (`0x1260`, overview §5.2).
 
 ### Chunk trees
 
@@ -112,6 +150,10 @@ rule (overview §2.1) doesn't hold there.
 7. **Implement it**: a registry entry and a decoder module in `pylibs/maxfile/maxfile/objects/`, a unit test
    with a synthetic fixture, and a corpus case (see `pylibs/maxfile/README.md` and `tests/corpus/README.md`).
 
+For parameters, `--decode` on the material or primitive's parameter-block objects (listed as `param_blocks` /
+`param_block` in the decoded value) is usually the quickest start: change one spinner in Max, save, and see which
+`id=` entry changed and which reading (`float`, `color`, ...) matches the new value.
+
 ## Checking the overview's assumptions
 
 The code marks every format assumption it relies on with `# Unverified (overview.md §N)`; list them with
@@ -127,3 +169,19 @@ prints object, node and unknown-class counts and the number of warnings for ever
   `reference.fbx` (#6).
 - **Warnings:** references out of range or damaged chunk trees suggest that one of the rules in overview §2-3
   doesn't hold for that file.
+- **Geometry:** vertex and face counts against `reference.obj`; faces dropped or map channels "dropped" /
+  "out of step" mean the mesh layout of overview §6.2-6.3 is off for that file (#7, #8). Material IDs one too
+  high or low mean `MATERIAL_ID_DISK_OFFSET` is wrong (#11).
+- **Modifier stacks:** whether `modifiers=` lists the modifiers in the order Max shows them, top first (#9).
+- **Materials:** whether names, VRayMtl diffuse / glossiness, and bitmap paths match the scene (#2, #12).
+
+### Probes still needed
+
+Nothing in overview.md documents these, so `maxfile` doesn't read them yet. Small scenes that differ in just one
+of them would let us find the chunks with the "change one thing" method above:
+
+- node **hidden** / **frozen** state, **wire colour**, renderable / visibility flags, layer membership details;
+- **scene units** (probably in `Config`, overview "To verify" #10);
+- the **Multi/Sub-Object ID list** and the parameter indices of every material class except the two VRayMtl ones;
+- **modifier** parameters and enabled state;
+- the layout of the asset index in `0x1260` and in class `0x3333` objects, and the asset metadata stream's name.
