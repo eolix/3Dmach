@@ -62,19 +62,6 @@ class MeshData:
 
 
 @dataclasses.dataclass
-class ModifierRef:
-    object_index: int | None
-    class_name: str
-    enabled: bool | None = None
-
-
-@dataclasses.dataclass
-class ModifierStack:
-    base: int
-    modifiers: list
-
-
-@dataclasses.dataclass
 class MaterialData:
     class_name: str
     name: str
@@ -216,35 +203,56 @@ class ImportTest(unittest.TestCase):
         self.assertEqual(report.imported["materials"], 2)
         self.assertEqual(report.unsupported[("material", "SomeOddMtl")], 1)
 
-    def test_modifier_stack(self):
-        import maxfile
-        geo = self.geometry_index()
-        with maxfile.open(self.path) as mf:
-            stack_holder = next(n.index for n in mf.nodes if n.name == "Root")
-        stack = ModifierStack(base=geo, modifiers=[
-            ModifierRef(None, "TurboSmooth"),
-            ModifierRef(None, "Shell"),
-            ModifierRef(None, "Bend"),
-            ModifierRef(None, "SomeUnknownModifier"),
-            ModifierRef(None, "Symmetry"),
-        ])
-        from mx_common.report import ImportReport
-        from mx_io_max import build_scene
-        with maxfile.open(self.path) as mf:
-            scene = mf.scene
-            node = next(n for n in mf.nodes if n.name == "Box002")
-            node.object = scene.objects[stack_holder]
-            original = scene.decode
-            decoded = {geo: CUBE, stack_holder: stack}
-            scene.decode = lambda obj: decoded.get(obj.index) if obj is not None and obj.index in decoded \
-                else original(obj)
-            report = ImportReport()
-            build_scene.SceneBuilder(bpy.context, self.path, build_scene.ImportSettings(), report).build(mf)
-        box2 = bpy.data.objects["Box002"]
-        # Imported up to the unsupported modifier, which is reported.
-        self.assertEqual([m.name for m in box2.modifiers], ["TurboSmooth", "Shell", "Bend"])
-        self.assertEqual([m.type for m in box2.modifiers], ['SUBSURF', 'SOLIDIFY', 'SIMPLE_DEFORM'])
-        self.assertEqual(report.unsupported[("modifier", "SomeUnknownModifier")], 1)
+    def write(self, data, name):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return path
+
+    def poly_scene(self):
+        """Two nodes instancing one Editable Poly cube; the second through a nested modifier stack."""
+        b = sm.SceneBuilder()
+        node = b.cls("Node", (1, 0), 1)
+        poly = b.cls("Editable Poly", (0x1BF8338D, 0x192F6098), 0x10)
+        derived = b.cls("Derived", (0x2032, 0), 0x0B)
+        smooth = b.cls("TurboSmooth", (0x7E57, 0x0010), 0x810)
+        shell = b.cls("Shell", (0x7E57, 0x0011), 0x810)
+        odd = b.cls("OddModifier", (0x7E57, 0x0012), 0x810)
+        uvs = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        geo = b.obj(poly, sm.poly_mesh(
+            [tuple(c / 10 for c in p) for p in CUBE.positions], CUBE.faces,
+            material_ids=[0, 1, 2, 2, 2, 2], smoothing=[1, 2, 4, 4, 4, 4],
+            channels={1: (uvs, [(0, 1, 2, 3)] * 6)}))
+        m_smooth, m_shell, m_odd = b.obj(smooth), b.obj(shell), b.obj(odd)
+        inner = b.obj(derived, sm.refs_ordered(m_smooth, geo))             # TurboSmooth at the bottom.
+        outer = b.obj(derived, sm.refs_ordered(m_odd, m_shell, inner))     # Then Shell, then OddModifier.
+        b.node(node, "Plain", refs=[sm.NULL, geo])
+        b.node(node, "Stacked", refs=[sm.NULL, outer])
+        return b.build()
+
+    def test_editable_poly_end_to_end(self):
+        path = self.write(self.poly_scene(), "poly.max")
+        self.assertEqual(bpy.ops.import_scene.mx_max(filepath=path, units='meters'), {'FINISHED'})
+        plain, stacked = bpy.data.objects["Plain"], bpy.data.objects["Stacked"]
+        self.assertEqual(plain.type, 'MESH')
+        self.assertIs(plain.data, stacked.data)
+        mesh = plain.data
+        self.assertEqual((len(mesh.vertices), len(mesh.polygons)), (8, 6))
+        self.assertEqual(sum(1 for v in mesh.attributes["sharp_edge"].data if v.value), 8)
+        self.assertIn("UVMap", mesh.uv_layers)
+        self.assertEqual(list(mesh["mx_material_ids"]), [1, 2, 3, 3, 3, 3])
+        # Stack imported bottom-up, stopping at the unsupported modifier.
+        self.assertEqual([m.name for m in stacked.modifiers], ["TurboSmooth", "Shell"])
+        report = bpy.data.texts["Import Report"].as_string()
+        self.assertIn("modifier: OddModifier x1", report)
+
+    def test_collapse_on_import(self):
+        path = self.write(self.poly_scene(), "poly2.max")
+        bpy.ops.import_scene.mx_max(filepath=path, units='meters', keep_modifier_stack=False)
+        stacked = bpy.data.objects["Stacked"]
+        self.assertEqual(len(stacked.modifiers), 0)
+        self.assertIsNot(stacked.data, bpy.data.objects["Plain"].data)
+        self.assertGreater(len(stacked.data.polygons), 6)
 
 
 class ModifierConvertTest(unittest.TestCase):

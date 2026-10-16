@@ -136,13 +136,14 @@ class SceneBuilder:
         decoded = scene.decode(target) if target is not None else None
         kind = _kind(decoded)
 
+        # Modifier stacks (possibly nested wrappers): the base geometry plus modifiers, top of the stack first.
         stack = None
         if kind == "ModifierStack":
-            stack = decoded
-            base = scene.objects[decoded.base] if decoded.base is not None else None
+            base, modifiers = scene.resolve_geometry(node)
+            stack = list(reversed(modifiers))       # Bottom (applied first) to top.
+            target = base
             decoded = scene.decode(base) if base is not None else None
             kind = _kind(decoded)
-            target = base
 
         obj = None
         if kind in {"MeshData", "PrimitiveData"}:
@@ -243,18 +244,17 @@ class SceneBuilder:
         self.report.add_unsupported("primitive", data.kind)
         return bpy.data.meshes.new(name)
 
-    def _build_stack(self, obj, scene, stack):
+    def _build_stack(self, obj, scene, modifiers):
+        """Add Max modifiers (scene objects, bottom of the stack first) as Blender modifiers."""
         from .modifiers import convert as modifier_convert
-        # ModifierStack lists modifiers bottom (applied first) to top.
-        for ref in stack.modifiers:
-            mod_obj = scene.objects[ref.object_index] if ref.object_index is not None else None
-            decoded = scene.decode(mod_obj) if mod_obj is not None else None
-            params = dict(getattr(decoded, "params", {}) or {})
-            added = modifier_convert.add_modifier(obj, ref.class_name, params, enabled=ref.enabled)
-            if added:
+        for mod_obj in modifiers:
+            class_name = mod_obj.class_label()
+            decoded = scene.decode(mod_obj)
+            params = dict(getattr(decoded, "params", None) or {})
+            if modifier_convert.add_modifier(obj, class_name, params, enabled=getattr(decoded, "enabled", None)):
                 self.report.add_imported("modifiers")
             else:
-                self.report.add_unsupported("modifier", ref.class_name)
+                self.report.add_unsupported("modifier", class_name)
                 break   # Import the stack up to the unsupported modifier (ROADMAP Phase 2d).
         if not self.settings.keep_modifier_stack:
             modifier_convert.collapse(obj)
