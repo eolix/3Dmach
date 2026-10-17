@@ -9,7 +9,7 @@ A Python gizmo (``MXUI_GT_viewcube``) draws the cube in region pixels with ``gpu
 (``test_select``): each face is split in 3 x 3 cells, the middle cell picks the face, the border cells the
 edges and corners they touch, so there are 26 targets, each a direction ``(x, y, z)`` with components in
 {-1, 0, 1}. Clicking a face switches to that orthographic view (Top, Front, ...); clicking an edge or corner
-turns the view to look from there, in perspective, with a short animation. Dragging the cube orbits the view;
+turns the view to look from there, in perspective. Dragging the cube orbits the view;
 the small house above it goes back to the home view. Original geometry and labels; Blender's navigation gizmo
 is switched off in Max viewports.
 
@@ -150,50 +150,14 @@ def rotation_for_part(part):
 # -----------------------------------------------------------------------------
 # View changes
 
-_animations = {}
-
-
-def _find_view(key):
-    """The ``RegionView3D`` of the 3D viewport area with pointer ``key``, looked up again (it may be gone)."""
-    for window in bpy.context.window_manager.windows:
-        for area in window.screen.areas:
-            if area.as_pointer() == key:
-                region = next((r for r in area.regions if r.type == 'WINDOW'), None)
-                return area, (region.data if region is not None else None)
-    return None, None
-
-
-def animate_view(area, rv3d, target, duration=0.25, steps=10, perspective=None):
-    """Turn ``rv3d`` (the view of ``area``) smoothly to the rotation ``target``."""
-    start = rv3d.view_rotation.copy()
-    if bpy.app.background:
-        rv3d.view_rotation = target
-        if perspective is not None:
-            rv3d.view_perspective = perspective
-        return
-    key = area.as_pointer()
-    state = _animations[key] = {"step": 0}
-
-    def tick():
-        if _animations.get(key) is not state:
-            return None  # Gone, or replaced by a newer animation.
-        found_area, view = _find_view(key)
-        if view is None:
-            _animations.pop(key, None)
-            return None
-        state["step"] += 1
-        t = min(state["step"] / steps, 1.0)
-        view.view_rotation = start.slerp(target, t * t * (3.0 - 2.0 * t))
-        found_area.tag_redraw()
-        if state["step"] < steps:
-            return duration / steps
-        _animations.pop(key, None)
-        if perspective is not None:
-            view.view_perspective = perspective
-        return None
-
-    tick()
-    bpy.app.timers.register(tick, first_interval=duration / steps)
+def set_view(area, rv3d, target):
+    """
+    Turn ``rv3d`` to the rotation ``target``. Faces go through ``view3d.view_axis``, which animates (smooth
+    view); edges and corners are set directly: an animation from timers registered while the gizmo finishes
+    didn't advance in the GUI check.
+    """
+    rv3d.view_rotation = target
+    area.tag_redraw()
 
 
 def apply_part(context, area, region, part):
@@ -203,7 +167,7 @@ def apply_part(context, area, region, part):
         rv3d.is_orthographic_side_view = False
         if rv3d.view_perspective != 'PERSP':
             rv3d.view_perspective = 'PERSP'
-        animate_view(area, rv3d, HOME_ROTATION)
+        set_view(area, rv3d, HOME_ROTATION)
         with context.temp_override(area=area, region=region):
             if bpy.ops.view3d.view_all.poll():
                 bpy.ops.view3d.view_all(center=False)
@@ -219,7 +183,7 @@ def apply_part(context, area, region, part):
     if rv3d.view_perspective == 'ORTHO':
         # Leaving an axis view: Max shows edges and corners in perspective.
         rv3d.view_perspective = 'PERSP'
-    animate_view(area, rv3d, rotation_for_part(part))
+    set_view(area, rv3d, rotation_for_part(part))
 
 
 class MXUI_OT_viewcube_home(Operator):

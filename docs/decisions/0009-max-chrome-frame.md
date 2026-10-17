@@ -71,9 +71,9 @@ gizmo are switched off in Max viewports.
 
 **ViewCube**: a Python gizmo drawing in region pixels with `gpu`/`blf` and picking itself in `test_select`
 (26 targets: faces, edges, corners, plus a home button); faces call `view3d.view_axis` (smooth view), edges
-and corners animate the view rotation from a timer; dragging orbits. Its `test_select`, called by Blender on
-every mouse move over a viewport, also records which viewport the mouse is over: the status line's navigation
-controls act on that viewport.
+and corners set the view rotation directly (a timer animation did not advance in the GUI check); dragging
+orbits. Its `test_select`, called by Blender on every mouse move over a viewport, also records which viewport
+the mouse is over: the status line's navigation controls act on that viewport.
 
 **Bottom**: the Timeline's header is the time slider (a track drawn with proportional splits, scrubbed by a
 modal operator mapping the mouse to frames), its main region the track bar. Row 1 of the status line is a
