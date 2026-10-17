@@ -15,25 +15,43 @@ from bpy.props import (
     EnumProperty,
     FloatProperty,
     FloatVectorProperty,
+    IntProperty,
     PointerProperty,
     StringProperty,
 )
 from bpy.types import PropertyGroup
 
+# Max's command panel tabs, in Max's order (shown as an icon row).
 COMMAND_TABS = (
-    ('CREATE', "Create", "Create objects: geometry, shapes, lights, cameras, helpers", 'ADD', 0),
+    ('CREATE', "Create", "Create objects: geometry, shapes, lights, cameras, helpers, space warps, systems",
+     'ADD', 0),
     ('MODIFY', "Modify", "Name, colour, modifier stack and parameters of the selected object", 'MODIFIER', 1),
-    ('HIERARCHY', "Hierarchy", "Pivot and link settings", 'ORIENTATION_PARENT', 2),
-    ('DISPLAY', "Display", "Hide, freeze and display properties", 'HIDE_OFF', 3),
-    ('UTILITIES', "Utilities", "Reset XForm, collapse, measure, units setup", 'TOOL_SETTINGS', 4),
+    ('HIERARCHY', "Hierarchy", "Pivot, IK and link settings", 'OUTLINER', 2),
+    ('MOTION', "Motion", "Controllers, keys and motion paths", 'ANIM', 3),
+    ('DISPLAY', "Display", "Display colour, hide, freeze and display properties", 'HIDE_OFF', 4),
+    ('UTILITIES', "Utilities", "Collapse, measure, Reset XForm and other utilities", 'TOOL_SETTINGS', 5),
 )
 
+# Create tab categories, in Max's order (an icon row under the tabs).
 CREATE_CATEGORIES = (
-    ('GEOMETRY', "Geometry", "Standard primitives", 'MESH_UVSPHERE', 0),
-    ('SHAPES', "Shapes", "Splines", 'CURVE_BEZCURVE', 1),
-    ('LIGHTS', "Lights", "Lights", 'LIGHT', 2),
-    ('CAMERAS', "Cameras", "Cameras", 'CAMERA_DATA', 3),
-    ('HELPERS', "Helpers", "Dummies and points", 'EMPTY_AXIS', 4),
+    ('GEOMETRY', "Geometry", "Primitives, compound objects and other geometry", 'MESH_UVSPHERE', 0),
+    ('SHAPES', "Shapes", "Splines and other shapes", 'CURVE_BEZCURVE', 1),
+    ('LIGHTS', "Lights", "Photometric and standard lights", 'LIGHT', 2),
+    ('CAMERAS', "Cameras", "Physical, target and free cameras", 'CAMERA_DATA', 3),
+    ('HELPERS', "Helpers", "Dummies, points and other helpers", 'EMPTY_AXIS', 4),
+    ('SPACE_WARPS', "Space Warps", "Forces, deflectors and deformers", 'FORCE_WIND', 5),
+    ('SYSTEMS', "Systems", "Bones, arrays and daylight systems", 'PREFERENCES', 6),
+)
+
+HIERARCHY_MODES = (
+    ('PIVOT', "Pivot", "Adjust the pivot (object origin) and transforms"),
+    ('IK', "IK", "Inverse kinematics settings"),
+    ('LINK_INFO', "Link Info", "Transform locks and inheritance"),
+)
+
+MOTION_MODES = (
+    ('PARAMETERS', "Parameters", "Controllers and keys of the selected object"),
+    ('MOTION_PATHS', "Motion Paths", "Edit the trajectory of the selected object"),
 )
 
 # Hide by Category: (state property, label, `SpaceView3D.show_object_viewport_*` suffixes).
@@ -104,12 +122,65 @@ class MXUI_State(PropertyGroup):
     )
     next_color_initialized: BoolProperty(options={'HIDDEN'})
 
+    # Create tab: the creation type whose button is highlighted, like Max's active creation mode.
+    create_active: StringProperty(name="Active Creation Type", options={'HIDDEN'})
+    create_object: StringProperty(name="Created Object", options={'HIDDEN'})
+    create_running: BoolProperty(name="Creating", options={'HIDDEN'})
+
     # Modify tab.
     stack_base_selected: StringProperty(
         name="Base Object Selected",
         description="Object whose base entry is selected in the modifier stack",
         options={'HIDDEN'},
     )
+    stack_expanded: BoolProperty(
+        name="Show Sub-Object Levels",
+        description="Show the sub-object levels of the base object in the stack",
+        default=True,
+    )
+    pin_object: StringProperty(
+        name="Pinned Object",
+        description="Object whose stack stays in the Modify tab while other objects are selected",
+        options={'HIDDEN'},
+    )
+    edit_command_active: StringProperty(name="Active Edit Command", options={'HIDDEN'})
+    weld_threshold: FloatProperty(
+        name="Weld Threshold",
+        description="Distance below which Weld merges selected vertices",
+        default=0.001, min=0.0, soft_max=1.0, unit='LENGTH', precision=4,
+    )
+    material_id: IntProperty(
+        name="Set ID",
+        description="Material ID (material slot number) for the selected polygons",
+        default=1, min=1, max=32767,
+    )
+    select_material_id: IntProperty(
+        name="Select ID",
+        description="Material ID (material slot number) to select polygons by",
+        default=1, min=1, max=32767,
+    )
+    select_id_clear: BoolProperty(
+        name="Clear Selection",
+        description="Deselect the other polygons when selecting by ID",
+        default=True,
+    )
+    auto_smooth_angle: FloatProperty(
+        name="Auto Smooth Threshold",
+        description="Polygons meeting at a smaller angle are smoothed together",
+        default=0.785398, min=0.0, max=3.141593, subtype='ANGLE',
+    )
+
+    # Hierarchy and Motion tabs.
+    hierarchy_mode: EnumProperty(name="Hierarchy Mode", items=HIERARCHY_MODES, default='PIVOT')
+    affect_object_only: BoolProperty(
+        name="Affect Object Only",
+        description="The alignment buttons move the object onto its pivot instead of the pivot onto the object "
+        "(moving the object alone with the transform tools is not implemented yet)",
+    )
+    motion_mode: EnumProperty(name="Motion Mode", items=MOTION_MODES, default='PARAMETERS')
+
+    # Utilities tab: the utility whose rollout is open below the Utilities rollout.
+    utility_active: StringProperty(name="Active Utility", options={'HIDDEN'})
 
     # Display tab.
     wire_display_color: EnumProperty(

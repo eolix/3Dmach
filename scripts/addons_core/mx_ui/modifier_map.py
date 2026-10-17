@@ -24,15 +24,24 @@ from bpy.types import Menu, Operator
 from . import utils
 
 # Modifier sets, in the order the Modifier List shows them.
+# Max's default modifier sets (as in its Modifiers menu and "Show All Sets in List").
 CATEGORIES = (
-    ('SELECTION', "Selection & Editing"),
-    ('SUBDIVISION', "Subdivision Surfaces"),
-    ('PARAMETRIC', "Parametric Deformers"),
-    ('FREEFORM', "Free Form Deformers"),
-    ('SURFACE', "Surface"),
+    ('SELECTION', "Selection Modifiers"),
+    ('SPLINE', "Patch/Spline Editing"),
     ('MESH', "Mesh Editing"),
+    ('CONVERSION', "Conversion"),
+    ('ANIMATION', "Animation"),
+    ('CLOTH', "Cloth"),
+    ('HAIR', "Hair and Fur"),
     ('UV', "UV Coordinates"),
-    ('SPLINE', "Spline / Shape"),
+    ('CACHE', "Cache Tools"),
+    ('SUBDIVISION', "Subdivision Surfaces"),
+    ('FREEFORM', "Free Form Deformations"),
+    ('PARAMETRIC', "Parametric Deformers"),
+    ('SURFACE', "Surface"),
+    ('NURBS', "NURBS Editing"),
+    ('RADIOSITY', "Radiosity"),
+    ('CAMERAS', "Cameras"),
 )
 
 MESH = frozenset({'MESH'})
@@ -59,70 +68,145 @@ class MaxModifier:
     description: str = ""
 
 
+_LATER = "No Blender equivalent yet"
+
+
+def _later(key, label, category, object_types=MESH_CURVE, description=_LATER):
+    """A Modifier List entry without a Blender equivalent yet (listed so the list matches Max's)."""
+    return MaxModifier(key, label, category, available=False, object_types=object_types, description=description)
+
+
 MODIFIERS = (
-    # Selection & editing.
-    MaxModifier("EDIT_POLY", "Edit Poly", 'SELECTION', setup="setup_edit_mode", object_types=MESH,
+    # Selection modifiers.
+    _later("MESH_SELECT", "Mesh Select", 'SELECTION', MESH, "Stack-level sub-object selection needs Phase 3 work"),
+    _later("POLY_SELECT", "Poly Select", 'SELECTION', MESH, "Stack-level sub-object selection needs Phase 3 work"),
+    _later("PATCH_SELECT", "Patch Select", 'SELECTION'),
+    _later("SPLINE_SELECT", "Spline Select", 'SELECTION', CURVE),
+    _later("VOLUME_SELECT", "Volume Select", 'SELECTION'),
+    _later("FFD_SELECT", "FFD Select", 'SELECTION'),
+    _later("SELECT_BY_CHANNEL", "Select By Channel", 'SELECTION', MESH),
+
+    # Patch/Spline editing.
+    _later("CROSS_SECTION", "CrossSection", 'SPLINE', CURVE),
+    _later("DELETE_PATCH", "Delete Patch", 'SPLINE'),
+    _later("DELETE_SPLINE", "Delete Spline", 'SPLINE', CURVE),
+    _later("EDIT_PATCH", "Edit Patch", 'SPLINE'),
+    MaxModifier("EDIT_SPLINE", "Edit Spline", 'SPLINE', setup="setup_edit_mode", object_types=CURVE,
+                description="Edit the spline at sub-object level (enters Edit Mode on the base object)"),
+    _later("FILLET_CHAMFER", "Fillet/Chamfer", 'SPLINE', CURVE),
+    MaxModifier("LATHE", "Lathe", 'SPLINE', 'SCREW', {"axis": 'Y', "steps": 16, "render_steps": 16},
+                object_types=MESH_CURVE, description="Screw (360 degrees around Y)"),
+    _later("NORMALIZE_SPLINE", "Normalize Spline", 'SPLINE', CURVE),
+    MaxModifier("RENDERABLE_SPLINE", "Renderable Spline", 'SPLINE', setup="setup_renderable_spline",
+                object_types=CURVE, description="Sets the curve's bevel depth (thickness)"),
+    _later("SURFACE_PATCH", "Surface", 'SPLINE', CURVE),
+    _later("SWEEP", "Sweep", 'SPLINE', CURVE),
+    _later("TRIM_EXTEND", "Trim/Extend", 'SPLINE', CURVE),
+
+    # Mesh editing.
+    _later("CAP_HOLES", "Cap Holes", 'MESH', MESH),
+    MaxModifier("CHAMFER", "Chamfer", 'MESH', 'BEVEL',
+                {"affect": 'EDGES', "width": 0.1, "segments": 1, "limit_method": 'NONE'},
+                object_types=MESH, description="Bevel"),
+    _later("DELETE_MESH", "Delete Mesh", 'MESH', MESH),
+    MaxModifier("EDIT_MESH", "Edit Mesh", 'MESH', setup="setup_edit_mode", object_types=MESH,
                 description="Edit the mesh at sub-object level (enters Edit Mode on the base object)"),
-    MaxModifier("EDIT_MESH", "Edit Mesh", 'SELECTION', setup="setup_edit_mode", object_types=MESH,
+    _later("EDIT_NORMALS", "Edit Normals", 'MESH', MESH),
+    MaxModifier("EDIT_POLY", "Edit Poly", 'MESH', setup="setup_edit_mode", object_types=MESH,
                 description="Edit the mesh at sub-object level (enters Edit Mode on the base object)"),
-    MaxModifier("MESH_SELECT", "Mesh Select", 'SELECTION', available=False, object_types=MESH,
-                description="Stack-level sub-object selection needs Phase 3 work"),
+    MaxModifier("EXTRUDE", "Extrude", 'MESH', setup="setup_extrude", object_types=CURVE,
+                description="Extrudes the shape (the curve's extrude depth, capped)"),
+    _later("FACE_EXTRUDE", "Face Extrude", 'MESH', MESH),
+    MaxModifier("MULTIRES", "MultiRes", 'MESH', 'DECIMATE',
+                {"decimate_type": 'COLLAPSE', "ratio": 1.0},
+                object_types=MESH, description="Decimate, collapse"),
+    MaxModifier("NORMAL", "Normal", 'MESH', 'NODES', setup="setup_flip_normals", object_types=MESH,
+                description="Flip normals (a small Geometry Nodes group)"),
+    MaxModifier("OPTIMIZE", "Optimize", 'MESH', 'DECIMATE',
+                {"decimate_type": 'DISSOLVE', "angle_limit": math.radians(4.0)},
+                object_types=MESH, description="Decimate, planar (face threshold 4 degrees)"),
+    MaxModifier("PROOPTIMIZER", "ProOptimizer", 'MESH', 'DECIMATE',
+                {"decimate_type": 'COLLAPSE', "ratio": 0.5},
+                object_types=MESH, description="Decimate, collapse (50% of the vertices)"),
+    _later("QUADIFY_MESH", "Quadify Mesh", 'MESH', MESH),
+    MaxModifier("SMOOTH", "Smooth", 'MESH', setup="setup_smooth_by_angle", object_types=MESH,
+                description="Smooth by Angle (auto smooth, 30 degrees threshold)"),
+    _later("STL_CHECK", "STL Check", 'MESH', MESH),
+    MaxModifier("SYMMETRY", "Symmetry", 'MESH', 'MIRROR',
+                {"use_axis": (True, False, False), "use_bisect_axis": (True, False, False),
+                 "use_mirror_merge": True, "use_clip": True},
+                description="Mirror with bisect and welded seam"),
+    MaxModifier("TESSELLATE", "Tessellate", 'MESH', 'SUBSURF',
+                {"levels": 1, "render_levels": 1, "subdivision_type": 'SIMPLE'},
+                description="Simple subdivision without smoothing"),
+    _later("VERTEX_PAINT", "VertexPaint", 'MESH', MESH),
+    MaxModifier("VERTEX_WELD", "Vertex Weld", 'MESH', 'WELD', {"merge_threshold": 0.001},
+                object_types=MESH, description="Weld"),
+    MaxModifier("WEIGHTED_NORMALS", "Weighted Normals", 'MESH', 'WEIGHTED_NORMAL',
+                {"weight": 50, "keep_sharp": True}, object_types=MESH, description="Weighted Normal"),
+    MaxModifier("WELD", "Weld", 'MESH', 'WELD', {"merge_threshold": 0.001},
+                object_types=MESH, description="Weld"),
+    MaxModifier("BOOLEAN", "Boolean", 'MESH', 'BOOLEAN', {"operation": 'DIFFERENCE'},
+                object_types=MESH, description="Boolean (pick the operand in the parameters)"),
+
+    # Conversion.
+    MaxModifier("TURN_TO_MESH", "Turn to Mesh", 'CONVERSION', 'TRIANGULATE', object_types=MESH,
+                description="Triangulate"),
+    _later("TURN_TO_PATCH", "Turn to Patch", 'CONVERSION', MESH),
+    _later("TURN_TO_POLY", "Turn to Poly", 'CONVERSION', MESH, "Blender meshes are already polygon meshes"),
+
+    # Animation.
+    _later("ATTRIBUTE_HOLDER", "Attribute Holder", 'ANIMATION'),
+    _later("FLEX", "Flex", 'ANIMATION'),
+    _later("LINKED_XFORM", "Linked XForm", 'ANIMATION'),
+    _later("MELT", "Melt", 'ANIMATION'),
+    _later("MORPHER", "Morpher", 'ANIMATION', MESH),
+    _later("PATCH_DEFORM", "Patch Deform", 'ANIMATION'),
+    MaxModifier("PATH_DEFORM", "Path Deform", 'ANIMATION', 'CURVE', object_types=MESH_CURVE,
+                description="Curve deform (pick the path in the parameters)"),
+    MaxModifier("SKIN", "Skin", 'ANIMATION', 'ARMATURE', object_types=MESH_CURVE,
+                description="Armature deform (pick the bones' armature in the parameters)"),
+    _later("SKIN_MORPH", "Skin Morph", 'ANIMATION', MESH),
+    MaxModifier("SKIN_WRAP", "Skin Wrap", 'ANIMATION', 'SURFACE_DEFORM', object_types=MESH,
+                description="Surface Deform (pick the target in the parameters)"),
+    _later("SKIN_WRAP_PATCH", "Skin Wrap Patch", 'ANIMATION', MESH),
+    _later("SPLINE_IK_CONTROL", "Spline IK Control", 'ANIMATION', CURVE),
+    _later("SURF_DEFORM", "Surf Deform", 'ANIMATION'),
+
+    # Cloth, hair.
+    _later("CLOTH", "Cloth", 'CLOTH', MESH),
+    _later("GARMENT_MAKER", "Garment Maker", 'CLOTH', CURVE),
+    _later("WELDER", "Welder", 'CLOTH', MESH),
+    _later("HAIR_AND_FUR", "Hair and Fur (WSM)", 'HAIR', MESH),
+
+    # UV coordinates.
+    _later("CAMERA_MAP", "Camera Map", 'UV', MESH),
+    _later("MAPSCALER", "MapScaler", 'UV', MESH),
+    _later("PROJECTION", "Projection", 'UV', MESH),
+    _later("UNWRAP_UVW", "Unwrap UVW", 'UV', MESH, "Coming later; use the UV Editing workspace meanwhile"),
+    _later("UVW_MAP", "UVW Map", 'UV', MESH, "Max-style projections are coming later (ROADMAP 2d)"),
+    _later("UVW_MAPPING_ADD", "UVW Mapping Add", 'UV', MESH),
+    _later("UVW_MAPPING_CLEAR", "UVW Mapping Clear", 'UV', MESH),
+    MaxModifier("UVW_XFORM", "UVW Xform", 'UV', 'UV_WARP', object_types=MESH,
+                description="UV Warp (offset, scale and rotate the UVs)"),
+
+    # Cache tools.
+    MaxModifier("POINT_CACHE", "Point Cache", 'CACHE', 'MESH_CACHE', object_types=MESH,
+                description="Mesh Cache (pick the cache file in the parameters)"),
 
     # Subdivision surfaces.
-    MaxModifier("TURBOSMOOTH", "TurboSmooth", 'SUBDIVISION', 'SUBSURF',
-                {"levels": 1, "render_levels": 1, "subdivision_type": 'CATMULL_CLARK'},
-                description="Subdivision Surface"),
+    _later("HSDS", "HSDS", 'SUBDIVISION', MESH),
     MaxModifier("MESHSMOOTH", "MeshSmooth", 'SUBDIVISION', 'SUBSURF',
                 {"levels": 1, "render_levels": 1, "subdivision_type": 'CATMULL_CLARK'},
                 description="Subdivision Surface"),
     MaxModifier("OPENSUBDIV", "OpenSubdiv", 'SUBDIVISION', 'SUBSURF',
                 {"levels": 1, "render_levels": 1, "subdivision_type": 'CATMULL_CLARK'},
                 description="Subdivision Surface"),
-    MaxModifier("TESSELLATE", "Tessellate", 'SUBDIVISION', 'SUBSURF',
-                {"levels": 1, "render_levels": 1, "subdivision_type": 'SIMPLE'},
-                description="Simple subdivision without smoothing"),
+    MaxModifier("TURBOSMOOTH", "TurboSmooth", 'SUBDIVISION', 'SUBSURF',
+                {"levels": 1, "render_levels": 1, "subdivision_type": 'CATMULL_CLARK'},
+                description="Subdivision Surface"),
 
-    # Parametric deformers (Max defaults: zero amounts, so adding them changes nothing until edited).
-    MaxModifier("BEND", "Bend", 'PARAMETRIC', 'SIMPLE_DEFORM',
-                {"deform_method": 'BEND', "angle": 0.0, "deform_axis": 'Z'},
-                description="Simple Deform, Bend"),
-    MaxModifier("TWIST", "Twist", 'PARAMETRIC', 'SIMPLE_DEFORM',
-                {"deform_method": 'TWIST', "angle": 0.0, "deform_axis": 'Z'},
-                description="Simple Deform, Twist"),
-    MaxModifier("TAPER", "Taper", 'PARAMETRIC', 'SIMPLE_DEFORM',
-                {"deform_method": 'TAPER', "factor": 0.0, "deform_axis": 'Z'},
-                description="Simple Deform, Taper"),
-    MaxModifier("STRETCH", "Stretch", 'PARAMETRIC', 'SIMPLE_DEFORM',
-                {"deform_method": 'STRETCH', "factor": 0.0, "deform_axis": 'Z'},
-                description="Simple Deform, Stretch"),
-    MaxModifier("NOISE", "Noise", 'PARAMETRIC', 'DISPLACE',
-                {"direction": 'RGB_TO_XYZ', "mid_level": 0.5, "strength": 0.0, "texture_coords": 'LOCAL'},
-                setup="setup_noise", description="Displace driven by a 3D noise texture"),
-    MaxModifier("PUSH", "Push", 'PARAMETRIC', 'DISPLACE',
-                {"direction": 'NORMAL', "mid_level": 0.0, "strength": 0.0},
-                description="Displace along normals by a uniform amount"),
-    MaxModifier("DISPLACE", "Displace", 'PARAMETRIC', 'DISPLACE', {"strength": 0.0},
-                description="Displace"),
-    MaxModifier("SPHERIFY", "Spherify", 'PARAMETRIC', 'CAST', {"cast_type": 'SPHERE', "factor": 1.0},
-                description="Cast to sphere"),
-    MaxModifier("WAVE", "Wave", 'PARAMETRIC', 'WAVE', {"use_x": True, "use_y": False, "height": 0.0},
-                description="Linear wave"),
-    MaxModifier("RIPPLE", "Ripple", 'PARAMETRIC', 'WAVE', {"use_x": True, "use_y": True, "height": 0.0},
-                description="Radial wave"),
-    MaxModifier("RELAX", "Relax", 'PARAMETRIC', 'SMOOTH', {"factor": 0.5, "iterations": 1},
-                description="Smooth (relax vertex positions)"),
-    MaxModifier("MIRROR", "Mirror", 'PARAMETRIC', 'MIRROR',
-                {"use_axis": (True, False, False), "use_mirror_merge": False},
-                description="Mirror"),
-    MaxModifier("SYMMETRY", "Symmetry", 'PARAMETRIC', 'MIRROR',
-                {"use_axis": (True, False, False), "use_bisect_axis": (True, False, False),
-                 "use_mirror_merge": True, "use_clip": True},
-                description="Mirror with bisect and welded seam"),
-    MaxModifier("SKIN_WRAP", "Skin Wrap", 'PARAMETRIC', 'SURFACE_DEFORM', object_types=MESH,
-                description="Surface Deform (pick the target in the parameters)"),
-    MaxModifier("ARRAY", "Array", 'PARAMETRIC', 'ARRAY', {"count": 2}, description="Array"),
-
-    # Free form deformers: a lattice fitted to the object.
+    # Free form deformations: a lattice fitted to the object.
     MaxModifier("FFD_2", "FFD 2x2x2", 'FREEFORM', 'LATTICE', setup="setup_ffd_2",
                 description="Lattice, 2x2x2 control points"),
     MaxModifier("FFD_3", "FFD 3x3x3", 'FREEFORM', 'LATTICE', setup="setup_ffd_3",
@@ -131,60 +215,65 @@ MODIFIERS = (
                 description="Lattice, 4x4x4 control points"),
     MaxModifier("FFD_BOX", "FFD(box)", 'FREEFORM', 'LATTICE', setup="setup_ffd_box",
                 description="Lattice, 4x4x4 control points"),
+    _later("FFD_CYL", "FFD(cyl)", 'FREEFORM'),
 
-    # Surface.
-    MaxModifier("SHELL", "Shell", 'SURFACE', 'SOLIDIFY',
-                {"thickness": 0.1, "offset": -1.0, "use_even_offset": True, "use_rim": True},
-                object_types=MESH, description="Solidify (inner amount)"),
-    MaxModifier("SMOOTH", "Smooth", 'SURFACE', setup="setup_smooth_by_angle", object_types=MESH,
-                description="Smooth by Angle (auto smooth, 30 degrees threshold)"),
-    MaxModifier("NORMAL", "Normal", 'SURFACE', 'NODES', setup="setup_flip_normals", object_types=MESH,
-                description="Flip normals (a small Geometry Nodes group)"),
-    MaxModifier("WEIGHTED_NORMALS", "Weighted Normals", 'SURFACE', 'WEIGHTED_NORMAL',
-                {"weight": 50, "keep_sharp": True}, object_types=MESH, description="Weighted Normal"),
-
-    # Mesh editing.
-    MaxModifier("CHAMFER", "Chamfer", 'MESH', 'BEVEL',
-                {"affect": 'EDGES', "width": 0.1, "segments": 1, "limit_method": 'NONE'},
-                object_types=MESH, description="Bevel"),
-    MaxModifier("OPTIMIZE", "Optimize", 'MESH', 'DECIMATE',
-                {"decimate_type": 'DISSOLVE', "angle_limit": math.radians(4.0)},
-                object_types=MESH, description="Decimate, planar (face threshold 4 degrees)"),
-    MaxModifier("PROOPTIMIZER", "ProOptimizer", 'MESH', 'DECIMATE',
-                {"decimate_type": 'COLLAPSE', "ratio": 0.5},
-                object_types=MESH, description="Decimate, collapse (50% of the vertices)"),
-    MaxModifier("MULTIRES", "MultiRes", 'MESH', 'DECIMATE',
-                {"decimate_type": 'COLLAPSE', "ratio": 1.0},
-                object_types=MESH, description="Decimate, collapse"),
-    MaxModifier("VERTEX_WELD", "Vertex Weld", 'MESH', 'WELD', {"merge_threshold": 0.001},
-                object_types=MESH, description="Weld"),
-    MaxModifier("WELD", "Weld", 'MESH', 'WELD', {"merge_threshold": 0.001},
-                object_types=MESH, description="Weld"),
-    MaxModifier("LATTICE", "Lattice", 'MESH', 'WIREFRAME',
+    # Parametric deformers (Max defaults: zero amounts, so adding them changes nothing until edited).
+    _later("AFFECT_REGION", "Affect Region", 'PARAMETRIC'),
+    MaxModifier("ARRAY", "Array", 'PARAMETRIC', 'ARRAY', {"count": 2}, description="Array"),
+    MaxModifier("BEND", "Bend", 'PARAMETRIC', 'SIMPLE_DEFORM',
+                {"deform_method": 'BEND', "angle": 0.0, "deform_axis": 'Z'},
+                description="Simple Deform, Bend"),
+    MaxModifier("DISPLACE", "Displace", 'PARAMETRIC', 'DISPLACE', {"strength": 0.0},
+                description="Displace"),
+    MaxModifier("LATTICE", "Lattice", 'PARAMETRIC', 'WIREFRAME',
                 {"thickness": 0.05, "use_even_offset": True, "use_relative_offset": False},
                 object_types=MESH, description="Wireframe (struts on every edge)"),
-    MaxModifier("TURN_TO_MESH", "Turn to Mesh", 'MESH', 'TRIANGULATE', object_types=MESH,
-                description="Triangulate"),
-    MaxModifier("TURN_TO_POLY", "Turn to Poly", 'MESH', available=False, object_types=MESH,
-                description="Blender meshes are already polygon meshes"),
-    MaxModifier("BOOLEAN", "Boolean", 'MESH', 'BOOLEAN', {"operation": 'DIFFERENCE'},
-                object_types=MESH, description="Boolean (pick the operand in the parameters)"),
-    MaxModifier("SLICE", "Slice", 'MESH', available=False, object_types=MESH,
-                description="No direct Blender equivalent yet"),
-    MaxModifier("CAP_HOLES", "Cap Holes", 'MESH', available=False, object_types=MESH,
-                description="No direct Blender equivalent yet"),
+    MaxModifier("MIRROR", "Mirror", 'PARAMETRIC', 'MIRROR',
+                {"use_axis": (True, False, False), "use_mirror_merge": False},
+                description="Mirror"),
+    MaxModifier("NOISE", "Noise", 'PARAMETRIC', 'DISPLACE',
+                {"direction": 'RGB_TO_XYZ', "mid_level": 0.5, "strength": 0.0, "texture_coords": 'LOCAL'},
+                setup="setup_noise", description="Displace driven by a 3D noise texture"),
+    _later("PRESERVE", "Preserve", 'PARAMETRIC', MESH),
+    MaxModifier("PUSH", "Push", 'PARAMETRIC', 'DISPLACE',
+                {"direction": 'NORMAL', "mid_level": 0.0, "strength": 0.0},
+                description="Displace along normals by a uniform amount"),
+    MaxModifier("RELAX", "Relax", 'PARAMETRIC', 'SMOOTH', {"factor": 0.5, "iterations": 1},
+                description="Smooth (relax vertex positions)"),
+    MaxModifier("RIPPLE", "Ripple", 'PARAMETRIC', 'WAVE', {"use_x": True, "use_y": True, "height": 0.0},
+                description="Radial wave"),
+    MaxModifier("SHELL", "Shell", 'PARAMETRIC', 'SOLIDIFY',
+                {"thickness": 0.1, "offset": -1.0, "use_even_offset": True, "use_rim": True},
+                object_types=MESH, description="Solidify (inner amount)"),
+    _later("SKEW", "Skew", 'PARAMETRIC'),
+    _later("SLICE", "Slice", 'PARAMETRIC', MESH),
+    MaxModifier("SPHERIFY", "Spherify", 'PARAMETRIC', 'CAST', {"cast_type": 'SPHERE', "factor": 1.0},
+                description="Cast to sphere"),
+    _later("SQUEEZE", "Squeeze", 'PARAMETRIC'),
+    MaxModifier("STRETCH", "Stretch", 'PARAMETRIC', 'SIMPLE_DEFORM',
+                {"deform_method": 'STRETCH', "factor": 0.0, "deform_axis": 'Z'},
+                description="Simple Deform, Stretch"),
+    _later("SUBSTITUTE", "Substitute", 'PARAMETRIC'),
+    MaxModifier("TAPER", "Taper", 'PARAMETRIC', 'SIMPLE_DEFORM',
+                {"deform_method": 'TAPER', "factor": 0.0, "deform_axis": 'Z'},
+                description="Simple Deform, Taper"),
+    MaxModifier("TWIST", "Twist", 'PARAMETRIC', 'SIMPLE_DEFORM',
+                {"deform_method": 'TWIST', "angle": 0.0, "deform_axis": 'Z'},
+                description="Simple Deform, Twist"),
+    MaxModifier("WAVE", "Wave", 'PARAMETRIC', 'WAVE', {"use_x": True, "use_y": False, "height": 0.0},
+                description="Linear wave"),
+    _later("XFORM", "XForm", 'PARAMETRIC'),
 
-    # UV coordinates.
-    MaxModifier("UVW_MAP", "UVW Map", 'UV', available=False, object_types=MESH,
-                description="Max-style projections are coming later (ROADMAP 2d)"),
-    MaxModifier("UNWRAP_UVW", "Unwrap UVW", 'UV', available=False, object_types=MESH,
-                description="Coming later; use the UV Editing workspace meanwhile"),
+    # Surface.
+    _later("DISP_APPROX", "Disp Approx", 'SURFACE', MESH),
+    _later("DISPLACE_MESH", "Displace Mesh", 'SURFACE', MESH),
+    _later("MATERIAL", "Material", 'SURFACE', MESH),
+    _later("MATERIAL_BY_ELEMENT", "MaterialByElement", 'SURFACE', MESH),
 
-    # Splines.
-    MaxModifier("LATHE", "Lathe", 'SPLINE', 'SCREW', {"axis": 'Y', "steps": 16, "render_steps": 16},
-                object_types=MESH_CURVE, description="Screw (360 degrees around Y)"),
-    MaxModifier("RENDERABLE_SPLINE", "Renderable Spline", 'SPLINE', setup="setup_renderable_spline",
-                object_types=CURVE, description="Sets the curve's bevel depth (thickness)"),
+    # NURBS editing, radiosity, cameras.
+    _later("NSURF_SEL", "Surface Select", 'NURBS'),
+    _later("SUBDIVIDE", "Subdivide", 'RADIOSITY', MESH),
+    _later("CAMERA_CORRECTION", "Camera Correction", 'CAMERAS', frozenset({'CAMERA'})),
 )
 
 BY_KEY = {entry.key: entry for entry in MODIFIERS}
@@ -335,6 +424,15 @@ def setup_smooth_by_angle(context, obj, _mod):
     return mod
 
 
+def setup_extrude(_context, obj, _mod):
+    curve = obj.data
+    if curve.extrude == 0.0:
+        curve.extrude = 0.1
+    if obj.type == 'CURVE':
+        curve.dimensions = '2D'
+        curve.fill_mode = 'BOTH'
+
+
 def setup_renderable_spline(_context, obj, _mod):
     curve = obj.data
     if curve.bevel_depth == 0.0:
@@ -371,6 +469,11 @@ PARAMETERS = {
     'BOOLEAN': ("operation", "operand_type", "object", "collection", "solver"),
     'SCREW': ("angle", "screw_offset", "iterations", "axis", "object", "steps", "render_steps",
               "use_merge_vertices", "use_normal_flip"),
+    'CURVE': ("object", "deform_axis"),
+    'ARMATURE': ("object", "use_deform_preserve_volume", "use_vertex_groups", "use_bone_envelopes"),
+    'UV_WARP': ("uv_layer", "center", "offset", "scale", "rotation", "axis_u", "axis_v"),
+    'MESH_CACHE': ("cache_format", "filepath", "factor", "deform_mode", "interpolation", "frame_start",
+                   "frame_scale"),
 }
 
 # Shown only for some values of another property: {type: {prop: (controlling prop, allowed values)}}.
@@ -486,16 +589,17 @@ class OBJECT_MT_mx_modifier_list(Menu):
         layout = self.layout
         obj = context.active_object
         obj_type = obj.type if obj else None
-        flow = layout.column_flow(columns=2)
+        flow = layout.column_flow(columns=4)
         for cat_id, cat_label in CATEGORIES:
             entries = [entry for entry in MODIFIERS if entry.category == cat_id]
             if not entries:
                 continue
             col = flow.column()
-            col.label(text=cat_label)
+            col.label(text=cat_label.upper())
             for entry in entries:
                 row = col.row()
-                row.enabled = entry.available and obj_type in entry.object_types
+                # Entries without a Blender equivalent stay clickable: they report that they are coming later.
+                row.enabled = obj_type in entry.object_types
                 row.operator(OBJECT_OT_mx_modifier_add.bl_idname, text=entry.label).kind = entry.key
             col.separator()
 
