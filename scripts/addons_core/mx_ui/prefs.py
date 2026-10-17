@@ -127,18 +127,8 @@ class MXUI_AddonPreferences(AddonPreferences):
         name="Max-Style Interface Chrome",
         description=(
             "Replace Blender's menu bar, status bar and editor headers in Max layouts with Max's: menu bar, "
-            "main toolbar, ribbon, Scene Explorer, viewport labels, time slider and status line"
+            "main toolbar, Scene Explorer, viewport labels, time slider and status line"
         ),
-        default=True,
-    )
-    show_top_menus: BoolProperty(
-        name="Max-Style Menus",
-        description="Add Create, Modifiers and Group menus to the top bar",
-        default=True,
-    )
-    show_main_toolbar: BoolProperty(
-        name="Main Toolbar",
-        description="Add a compact Max-style main toolbar to the top bar",
         default=True,
     )
 
@@ -163,9 +153,8 @@ class MXUI_AddonPreferences(AddonPreferences):
         col.prop(self, "command_panel_everywhere", text="Every Properties Editor")
         col.prop(self, "command_panel_in_sidebar", text="Viewport Sidebar")
 
-        col = layout.column(heading="Top Bar")
-        col.prop(self, "show_top_menus")
-        col.prop(self, "show_main_toolbar")
+        col = layout.column(heading="Interface")
+        col.prop(self, "use_max_chrome", text="Max-Style Chrome")
 
         col = layout.column(heading="Layout")
         col.prop(self, "use_max_layout_for_new_files", text="New Files")

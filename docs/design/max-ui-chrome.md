@@ -22,12 +22,9 @@ back. Header overrides must call Blender's original `draw` when the preference i
 ```
 +----------------------------------------------------------------------------------------------------+
 | Menu bar: File Edit Tools Group Views Create Modifiers Animation Graph Editors Rendering Civil View |
-|           Customize Scripting Interactive Content Help            [Sign In]  Workspaces: [Default]  |
+|           Customize Scripting Interactive Content Help                                             |
 +----------------------------------------------------------------------------------------------------+
 | Main toolbar (one row of buttons, see below)                                                        |
-+----------------------------------------------------------------------------------------------------+
-| Ribbon: [Modeling] [Freeform] [Selection] [Object Paint] [Populate] [v]   (minimised: panel titles, |
-|         e.g. "Polygon Modeling"; clicking a tab/panel title pops its tools out)                     |
 +---+-------------------+---------------------------------------------------+-------------------------+
 | V | Scene Explorer    | Viewports (4, or 1 maximised)                     | Command panel           |
 | i | menus: Select     |  label menus: [+] [Perspective] [Standard]        |  tabs: Create Modify    |
@@ -57,7 +54,53 @@ back. Header overrides must call Blender's original `draw` when the preference i
 ### Menu bar
 File, Edit, Tools, Group, Views, Create, Modifiers, Animation, Graph Editors, Rendering, Civil View,
 Customize, Scripting, Interactive, Content, Help. Each with Max's items in Max's order (submenus included).
-Right side: "Sign In" (placeholder), "Workspaces:" dropdown (Blender workspaces; "Default" = the Max layout).
+The modeling menus (File, Edit, Tools, Group, Views, Create, Modifiers, Rendering, Customize, Scripting, Help)
+are complete; Animation, Graph Editors, Civil View, Interactive and Content only hold a few placeholder
+entries (maintainer, 2026-10-16: the interface is classic modeling Max, no animation/paint/populate presets).
+No "Sign In" and no workspace switcher: Blender's workspace tabs (and scene / view layer selectors) are hidden
+while the chrome is on, the Max layout being the one workspace that matters.
+
+Entries without a Blender feature are placeholders. The others map as follows (`chrome/menubar.py`, data
+in `MENUS`):
+
+- **File**: New > New All (empty scene), New from Template (Blender's templates); Reset (startup file); Open,
+  Open Recent, Save, Save As, Save Copy As; View Image File (image editor window); Import > Import... (the .max
+  importer, `import_scene.mx_max`), Merge (Append), Other Formats (Blender's importers); Export > Export...
+  (Blender's exporters); Reference > XRef Objects/Scene (Link), Asset Tracking (external data); Exit.
+  "Share View" and "Send To" (product names / online services) are left out.
+- **Edit**: Undo, Redo, Delete (objects, or sub-objects in edit mode), Clone (`mx_keymap.clone`), Move /
+  Rotate / Scale (tools), Select All / None / Invert / Similar / Instances, Select By > Color / Name
+  (`mx_keymap.select_by_name`) / Layer, Selection Region (select tools, Window / Crossing state), Object
+  Properties. Hold and Fetch are placeholders.
+- **Tools**: Scene / Layer Explorer (Outliner window), Isolate Selection / End Isolate (local view in every
+  viewport), Mirror (`object.mx_mirror`: axis, offset, No Clone / Copy / Instance), Align > Align / Quick
+  Align, Rename Objects (batch rename), Grab Viewport (viewport render), Grids and Snaps > Grid and Snap
+  Settings / Show Home Grid.
+- **Group**: Group, Ungroup, Attach, Detach (`mx_ui.groups`); Open / Close / Explode and Assembly are
+  placeholders.
+- **Views**: Redraw All Views, Set Active Viewport (Perspective, Orthographic, Front ... Right, Camera; the
+  `mx_keymap` view operators), Create Standard / Physical Camera From View (`object.mx_camera_from_view`),
+  xView > Show Statistics, Show Transform Gizmo, Expert Mode (full-screen viewport without panels).
+- **Create**: submenus mirroring the Command panel categories: Standard / Extended Primitives
+  (`mesh.mx_primitive_add`, an entry becomes real as soon as the operator has that kind), Compound > Boolean,
+  NURBS > CV Surface / CV Curve, Shapes (`curve.mx_shape_add`), Lights / Cameras / Helpers
+  (`object.mx_create`), Systems > Bones; AEC, Particles, Patch Grids, Dynamics, SpaceWarps are placeholders.
+- **Modifiers**: Max's categories (Selection, Patch/Spline Editing, Mesh Editing, Conversion, Animation, ...,
+  Free Form Deformers, Parametric Deformers, Surface, ...), each entry looked up in `modifier_map` by name
+  (`object.mx_modifier_add`); every Modifier List entry is reachable.
+- **Rendering**: Render, Render Setup (render properties window), Rendered Frame Window, Exposure Control,
+  Environment (world properties), Effects (compositor), Material Editor > Compact / Slate (shader editor
+  window), Video Post (sequencer), View Image File, Print Size Assistant (output properties), Render Message
+  Window (Info editor).
+- **Customize**: Customize User Interface, Hotkey Editor, Configure Paths, Plug-in Manager, Preferences
+  (Blender preferences at the matching section), Revert to Startup Layout (`screen.mx_max_layout`), Units
+  Setup (`scene.mx_units_setup`).
+- **Scripting**: New Script / Open Script (text editor window), Run Script (runs a .py file), MAXScript
+  Listener (Python console window), Macro Recorder (Info editor: the operator log), Scripting Reference.
+- **Help**: Welcome Screen (splash), Help (manual), Hotkey Map, Search Commands, Scripting Help, About.
+
+Viewport commands run in the "active" viewport: the context's viewport, else the largest one (the Perspective
+view wins a tie). Editors that Max opens as dialogs open as new windows.
 
 ### Main toolbar
 Undo, Redo | Select and Link, Unlink Selection, Bind to Space Warp | Selection Filter dropdown (All, Geometry,
@@ -73,13 +116,36 @@ Scene Explorer, Toggle Layer Explorer, Toggle Ribbon | Curve Editor, Schematic V
 (Compact, Slate) | Render Setup, Rendered Frame Window, Render flyout (Render Production, Render Iterative,
 ActiveShade).
 
+`chrome.main_toolbar.draw_main_toolbar(layout, context)` draws it into any header; the frame hosts it in a
+header-only strip. Flyouts are `operator_menu_hold` buttons: click runs the variant shown, press and hold lists
+the others; the variant shown is the active one (tool, pivot) or the last one picked. Active tools and enabled
+snaps are drawn pressed. Mapping:
+
+- Undo (hold: undo history), Redo; Select and Link / Unlink: parent to the active object / clear parent, both
+  keeping transforms.
+- Selection Filter and Window/Crossing: session state on `WindowManager.mx_ui` (`selection_filter`,
+  `select_crossing`), for the selection operators to use.
+- Select Object: the select tool of the current region (Rectangular → Box, Lasso → Lasso, Paint → Circle;
+  Circular and Fence are placeholders); Select by Name: `mx_keymap.select_by_name`.
+- Move, Rotate, Scale (Uniform and Non-uniform → Blender's Scale tool; Squash placeholder).
+- Reference Coordinate System: `mx_ui.ref_coord_sys`, read from and written to the scene's transform
+  orientation: View and Screen → View, World → Global, Parent, Local, Gimbal, Working → 3D Cursor, Local
+  Aligned → Normal; a custom orientation shows as Pick; Grid and Pick can't be chosen yet.
+- Pivot: Pivot Point Center → Individual Origins, Selection Center → Bounding Box Center, Transform
+  Coordinate Center → 3D Cursor.
+- Snaps (3D), Angle Snap, Percent Snap: independent toggles over Blender's snapping switch and its Move /
+  Rotate / Scale "affect" options (`mx_ui.snap_toggle`); 2D / 2.5D and Spinner Snap are placeholders.
+- Mirror: `object.mx_mirror`; Align: Align Objects (to the active object), Quick Align (selection to active).
+- Curve Editor: Graph editor window; Material Editor: shader editor window (`mx_keymap.open_editor`); Render
+  Setup: render properties window; Rendered Frame Window: render result; Render Production / Iterative:
+  render; ActiveShade: toggles rendered shading in the active viewport.
+- Placeholders: Bind to Space Warp, Select and Place, Select and Manipulate, Keyboard Shortcut Override,
+  named selection sets, Normal Align and the other align variants, the explorer and ribbon toggles, Schematic
+  View.
+
 ### Ribbon
-Tabs Modeling, Freeform, Selection, Object Paint, Populate, and the minimise button. Modeling tab panels:
-Polygon Modeling, Modify Selection, Edit, Geometry (All), sub-object panels (Polygons, Vertices, Edges, Borders,
-Elements), Loops, Subdivision, Triangulation, Align, Visibility, Properties. Freeform: PolyDraw, Paint Deform,
-Defaults. Selection: Select by Normal/Perspective/Random/Half/Pivot Distance/Symmetry/Numeric/Surface. Object
-Paint: Paint Objects, Brush Settings. Populate: Define Flows, Define Idle Areas, Simulate, Display, Edit
-Selected. Default state: minimised to panel titles.
+Not built (maintainer, 2026-10-16: no Modeling/Freeform/Selection/Object Paint/Populate presets). The main
+toolbar's Toggle Ribbon button is a placeholder.
 
 ### Scene Explorer (left)
 Menus Select, Display, Edit, Customize; Find field; header icons (hierarchy/layer view, lock, filters). Columns
@@ -142,9 +208,9 @@ Zoom Extents All (flyout), Field of View / Zoom Region, Pan View, Orbit (flyout)
 
 ## Building it in Blender (Python only)
 
-- **Menu bar**: `TOPBAR_MT_editor_menus.draw` replaced while `use_max_chrome` is on; the workspace tabs in the
-  top bar are hidden in favour of the "Workspaces:" dropdown.
-- **Toolbar strips** (main toolbar, ribbon): editors shrunk to their header (an area can be as short as its
+- **Menu bar**: `TOPBAR_MT_editor_menus.draw` replaced while `use_max_chrome` is on; the workspace tabs (and the
+  scene / view layer selectors) in the top bar are hidden (`TOPBAR_HT_upper_bar.draw_left/draw_right`).
+- **Toolbar strip** (main toolbar): editors shrunk to their header (an area can be as short as its
   header), whose header draw is overridden only for areas that the Max layout marked as strips.
 - **Vertical strips** (explorer filter bar, viewport layout tab bar): narrow editors whose main region draws a
   column of icon buttons.

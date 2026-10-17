@@ -41,7 +41,6 @@ from . import (
     layers,
     groups,
     quad_menu,
-    topbar,
     layout,
     theme,
 )
@@ -62,7 +61,6 @@ _modules = (
     groups,
     quad_menu,
     command_panel,
-    topbar,
     layout,
     theme,
     chrome,
