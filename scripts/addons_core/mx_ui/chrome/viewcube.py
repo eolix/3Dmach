@@ -24,7 +24,7 @@ import blf
 import gpu
 from bpy.types import Gizmo, GizmoGroup, Operator
 from gpu_extras.batch import batch_for_shader
-from mathutils import Euler, Matrix, Quaternion, Vector
+from mathutils import Euler, Matrix, Vector
 
 from . import _areas, frame_state, navigation
 
@@ -380,18 +380,7 @@ class MXUI_GT_viewcube(Gizmo):
         return {'RUNNING_MODAL'}
 
     def _orbit(self, context, dx, dy):
-        rv3d = context.region_data
-        if rv3d.view_perspective == 'CAMERA':
-            return
-        if rv3d.is_orthographic_side_view:
-            rv3d.is_orthographic_side_view = False
-            if rv3d.view_perspective == 'ORTHO':
-                rv3d.view_perspective = 'PERSP'
-        speed = 0.012
-        turn = Quaternion((0.0, 0.0, 1.0), -dx * speed)
-        rotation = rv3d.view_rotation
-        tilt = Quaternion(rotation @ Vector((1.0, 0.0, 0.0)), dy * speed)
-        rv3d.view_rotation = turn @ tilt @ rotation
+        navigation.orbit_view(context.region_data, dx, dy, speed=0.012)
         context.area.tag_redraw()
 
     def exit(self, context, cancel):

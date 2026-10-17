@@ -584,6 +584,19 @@ class NavigationTest(unittest.TestCase):
         self.assertAlmostEqual(rv3d.view_distance, distance * 0.5, places=4)
         rv3d.view_distance = distance
 
+    def test_orbit(self):
+        nav = chrome("navigation")
+        space = first_area('VIEW_3D').spaces.active
+        mx_ui().layout.configure_view3d(space, 'TOP')
+        rv3d = space.region_3d
+        before = rv3d.view_rotation.copy()
+        nav.orbit_view(rv3d, 30, 10)
+        self.assertNotAlmostEqual(before.rotation_difference(rv3d.view_rotation).angle, 0.0, places=3)
+        # Orbiting an axis view leaves it, in perspective.
+        self.assertFalse(rv3d.is_orthographic_side_view)
+        self.assertEqual(rv3d.view_perspective, 'PERSP')
+        mx_ui().layout.configure_view3d(space, 'PERSPECTIVE')
+
     def test_time_slider_mapping(self):
         timeslider = chrome("timeslider")
         scene = bpy.context.scene

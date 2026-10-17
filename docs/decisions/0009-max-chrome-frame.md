@@ -78,8 +78,9 @@ controls act on that viewport.
 **Bottom**: the Timeline's header is the time slider (a track drawn with proportional splits, scrubbed by a
 modal operator mapping the mouse to frames), its main region the track bar. Row 1 of the status line is a
 horizontal strip under it (Blender never shows the Timeline's footer); Blender's status bar draws row 2.
-The navigation controls are modes as in Max (Zoom, Zoom All, Field of View: own drag handling; Pan, Orbit,
-Zoom Region: Blender's operators started in the viewport clicked; right click ends the mode).
+The navigation controls are modes as in Max (Zoom, Zoom All, Field of View, Pan, Orbit: own drag handling
+in a window-level modal operator; Zoom Region: Blender's box zoom started in the viewport clicked; right
+click ends the mode).
 
 ## Consequences
 

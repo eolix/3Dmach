@@ -10,7 +10,8 @@ The buttons live in the status line, outside the viewports, so they act on the *
 viewport the mouse was last over (recorded by the ViewCube gizmo, which Blender asks about every mouse move),
 else the Perspective viewport. One-shot commands run there directly. The interactive ones are modes, as in
 Max: the button stays pressed, dragging in any viewport zooms / pans / orbits it, and right-click or Esc ends
-the mode.
+the mode. Zoom, Zoom All, Field-of-View, Pan and Orbit handle the drag themselves; Zoom Region starts Blender's
+box zoom in the viewport clicked.
 """
 
 import math
@@ -18,6 +19,8 @@ import math
 import bpy
 from bpy.props import EnumProperty
 from bpy.types import Menu, Operator
+from bpy_extras.view3d_utils import region_2d_to_location_3d
+from mathutils import Quaternion, Vector
 
 from ..placeholder import placeholder
 from . import _areas, frame_state
@@ -170,6 +173,28 @@ def zoom_view(rv3d, factor):
     rv3d.view_distance = max(rv3d.view_distance * factor, 1e-4)
 
 
+def pan_view(region, rv3d, start, end):
+    """Move the view so the point under region pixel ``start`` ends up under ``end``."""
+    a = region_2d_to_location_3d(region, rv3d, start, rv3d.view_location)
+    b = region_2d_to_location_3d(region, rv3d, end, rv3d.view_location)
+    rv3d.view_location = rv3d.view_location - (b - a)
+
+
+def orbit_view(rv3d, dx, dy, speed=0.01):
+    """Turntable orbit around the view centre: ``dx`` turns around the world Z axis, ``dy`` tilts."""
+    if rv3d.view_perspective == 'CAMERA':
+        return
+    if rv3d.is_orthographic_side_view:
+        rv3d.is_orthographic_side_view = False
+        if rv3d.view_perspective == 'ORTHO':
+            # Leaving an axis view shows the scene in perspective, as Max does.
+            rv3d.view_perspective = 'PERSP'
+    rotation = rv3d.view_rotation
+    turn = Quaternion((0.0, 0.0, 1.0), -dx * speed)
+    tilt = Quaternion(rotation @ Vector((1.0, 0.0, 0.0)), dy * speed)
+    rv3d.view_rotation = turn @ tilt @ rotation
+
+
 def change_fov(space, delta):
     """Change a perspective viewport's lens by ``delta`` degrees of field of view."""
     sensor = 36.0
@@ -243,28 +268,35 @@ class MXUI_OT_viewport_nav_mode(Operator):
 
     def _start(self, context, event, area, region):
         mode = self.mode
-        ops = {
-            'ZOOM_REGION': bpy.ops.view3d.zoom_border,
-            'PAN': bpy.ops.view3d.move,
-            'ORBIT': bpy.ops.view3d.rotate,
-        }
-        if mode in ops:
-            run_in_viewport(context, area, region, ops[mode], 'INVOKE_DEFAULT')
+        if mode == 'ZOOM_REGION':
+            run_in_viewport(context, area, region, bpy.ops.view3d.zoom_border, 'INVOKE_DEFAULT')
             return {'RUNNING_MODAL'}
         space = area.spaces.active
         if mode == 'ZOOM_ALL':
             views = [a.spaces.active.region_3d for a in max_viewports(context.screen)]
         else:
             views = [space.region_3d]
+        rv3d = space.region_3d
         self._drag = {
-            "area": area.as_pointer(),
             "y": event.mouse_y,
-            "distances": [rv3d.view_distance for rv3d in views],
+            "prev": (event.mouse_x, event.mouse_y),
+            "distances": [view.view_distance for view in views],
             "views": views,
             "space": space,
+            "region": region,
             "lens": space.lens,
+            "location": rv3d.view_location.copy(),
+            "rotation": rv3d.view_rotation.copy(),
         }
         return {'RUNNING_MODAL'}
+
+    def _restore(self, drag):
+        for rv3d, distance in zip(drag["views"], drag["distances"]):
+            rv3d.view_distance = distance
+        space = drag["space"]
+        space.lens = drag["lens"]
+        space.region_3d.view_location = drag["location"]
+        space.region_3d.view_rotation = drag["rotation"]
 
     def _modal_drag(self, context, event):
         drag = self._drag
@@ -272,21 +304,29 @@ class MXUI_OT_viewport_nav_mode(Operator):
             self._drag = None
             return {'RUNNING_MODAL'}
         if event.type in {'RIGHTMOUSE', 'ESC'}:
-            for rv3d, distance in zip(drag["views"], drag["distances"]):
-                rv3d.view_distance = distance
-            drag["space"].lens = drag["lens"]
+            self._restore(drag)
             self._drag = None
             self._redraw(context)
             return {'RUNNING_MODAL'}
         if event.type == 'MOUSEMOVE':
-            dy = event.mouse_y - drag["y"]
-            if self.mode == 'FOV':
+            mode = self.mode
+            region = drag["region"]
+            rv3d = drag["space"].region_3d
+            prev = drag["prev"]
+            current = (event.mouse_x, event.mouse_y)
+            drag["prev"] = current
+            if mode == 'PAN':
+                pan_view(region, rv3d, (prev[0] - region.x, prev[1] - region.y),
+                         (current[0] - region.x, current[1] - region.y))
+            elif mode == 'ORBIT':
+                orbit_view(rv3d, current[0] - prev[0], current[1] - prev[1])
+            elif mode == 'FOV':
                 drag["space"].lens = drag["lens"]
-                change_fov(drag["space"], -dy * _FOV_SPEED)
+                change_fov(drag["space"], -(event.mouse_y - drag["y"]) * _FOV_SPEED)
             else:
-                factor = math.exp(-dy * _ZOOM_SPEED)
-                for rv3d, distance in zip(drag["views"], drag["distances"]):
-                    rv3d.view_distance = max(distance * factor, 1e-4)
+                factor = math.exp(-(event.mouse_y - drag["y"]) * _ZOOM_SPEED)
+                for view, distance in zip(drag["views"], drag["distances"]):
+                    view.view_distance = max(distance * factor, 1e-4)
             self._redraw(context)
         return {'RUNNING_MODAL'}
 
