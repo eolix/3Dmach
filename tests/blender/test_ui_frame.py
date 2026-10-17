@@ -561,6 +561,18 @@ class ViewCubeTest(unittest.TestCase):
                                        places=5)
 
 
+    def test_apply_part(self):
+        area = first_area('VIEW_3D')
+        region = region_of(area)
+        mx_ui().layout.configure_view3d(area.spaces.active, 'TOP')
+        self.cube.apply_part(bpy.context, area, region, (1, -1, 1))
+        rv3d = region.data
+        self.assertEqual(rv3d.view_perspective, 'PERSP')
+        expected = self.cube.rotation_for_part((1, -1, 1))
+        self.assertAlmostEqual(expected.rotation_difference(rv3d.view_rotation).angle, 0.0, places=4)
+        mx_ui().layout.configure_view3d(area.spaces.active, 'PERSPECTIVE')
+
+
 class NavigationTest(unittest.TestCase):
 
     def test_target_viewport(self):

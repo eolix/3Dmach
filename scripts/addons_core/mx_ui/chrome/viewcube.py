@@ -153,38 +153,47 @@ def rotation_for_part(part):
 _animations = {}
 
 
+def _find_view(key):
+    """The ``RegionView3D`` of the 3D viewport area with pointer ``key``, looked up again (it may be gone)."""
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.as_pointer() == key:
+                region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+                return area, (region.data if region is not None else None)
+    return None, None
+
+
 def animate_view(area, rv3d, target, duration=0.25, steps=10, perspective=None):
-    """Turn ``rv3d`` smoothly to the rotation ``target``."""
+    """Turn ``rv3d`` (the view of ``area``) smoothly to the rotation ``target``."""
     start = rv3d.view_rotation.copy()
-    key = area.as_pointer()
-    _animations[key] = {"step": 0}
-
-    def tick():
-        state = _animations.get(key)
-        if state is None:
-            return None
-        state["step"] += 1
-        t = min(state["step"] / steps, 1.0)
-        t = t * t * (3.0 - 2.0 * t)
-        try:
-            rv3d.view_rotation = start.slerp(target, t)
-            area.tag_redraw()
-        except ReferenceError:
-            _animations.pop(key, None)
-            return None
-        if state["step"] >= steps:
-            _animations.pop(key, None)
-            if perspective is not None:
-                rv3d.view_perspective = perspective
-            return None
-        return duration / steps
-
     if bpy.app.background:
         rv3d.view_rotation = target
         if perspective is not None:
             rv3d.view_perspective = perspective
         return
-    bpy.app.timers.register(tick, first_interval=0.0)
+    key = area.as_pointer()
+    state = _animations[key] = {"step": 0}
+
+    def tick():
+        if _animations.get(key) is not state:
+            return None  # Gone, or replaced by a newer animation.
+        found_area, view = _find_view(key)
+        if view is None:
+            _animations.pop(key, None)
+            return None
+        state["step"] += 1
+        t = min(state["step"] / steps, 1.0)
+        view.view_rotation = start.slerp(target, t * t * (3.0 - 2.0 * t))
+        found_area.tag_redraw()
+        if state["step"] < steps:
+            return duration / steps
+        _animations.pop(key, None)
+        if perspective is not None:
+            view.view_perspective = perspective
+        return None
+
+    tick()
+    bpy.app.timers.register(tick, first_interval=duration / steps)
 
 
 def apply_part(context, area, region, part):
