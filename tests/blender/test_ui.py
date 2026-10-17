@@ -827,25 +827,30 @@ class LayoutTest(unittest.TestCase):
 
     def test_split_steps(self):
         window = bpy.context.window
-        area = self.view3d_areas()[0]
+        area = max(self.view3d_areas(), key=lambda a: a.width * a.height)
         before = list(self.screen.areas)
         steps = self.layout.split_steps(window, self.screen, area)
-        for _step in range(4):
-            next(steps)
-        new_areas = [a for a in self.screen.areas if a not in before]
-        self.assertEqual(sorted(a.type for a in new_areas), ['OUTLINER', 'PROPERTIES', 'VIEW_3D', 'VIEW_3D'])
+        roles = None
         try:
-            next(steps)
+            for _step in range(1000):
+                next(steps)
         except RuntimeError:
-            # The last split divides an area created by a split: headless, its size is never computed
-            # (no event loop), so Blender refuses. In a window the event loop runs between steps.
-            return
+            # Splitting an area created by a split needs its size, which the event loop computes between
+            # steps; headless it never runs. The splits of the original area are done by then.
+            pass
         except StopIteration as ex:
             roles = ex.value
         else:
             self.fail("split_steps has more steps than expected")
+        new_areas = [a for a in self.screen.areas if a not in before]
+        if roles is None:
+            # Status row, timeline, main toolbar, tab bar, explorer, command panel and two viewports.
+            self.assertEqual(sorted(a.type for a in new_areas),
+                             ['DOPESHEET_EDITOR', 'INFO', 'INFO', 'OUTLINER', 'PROPERTIES', 'PROPERTIES',
+                              'VIEW_3D', 'VIEW_3D'])
+            return
         self.layout.configure_areas(window, self.screen, roles)
-        self.assertEqual(len({a.as_pointer() for a in roles.values()}), 6)
+        self.assertEqual(len({a.as_pointer() for a in roles.values()}), 14)
         self.assertEqual(roles['EXPLORER'].type, 'OUTLINER')
         self.assertEqual(roles['COMMAND_PANEL'].type, 'PROPERTIES')
         self.assertEqual(roles['TOP'].spaces.active.shading.type, 'WIREFRAME')

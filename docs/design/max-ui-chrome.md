@@ -2,6 +2,10 @@
 
 - Status: Accepted (maintainer request, 2026-10-16: "all the sidebars, modifiers, tabs for objects, all exactly
   like Max. Even if not yet implemented, the buttons must all be there.")
+- Scope (maintainer, 2026-10-16): the classic **modeling** interface. No ribbon and no workspace presets for
+  animation, object paint, freeform or populate. The animation controls at the bottom are simple buttons
+  (real where Blender has them); the effort goes into modeling: viewport labels, ViewCube, Scene Explorer,
+  transform type-in and viewport navigation controls.
 
 The Max-style workspace reproduces the **layout and controls** of Max's default interface (Max 2017+ "Default"
 workspace, dark UI). Every menu, toolbar button, tab, rollout and control is present in the same place. Where
@@ -144,8 +148,8 @@ snaps are drawn pressed. Mapping:
   View.
 
 ### Ribbon
-Not built (maintainer, 2026-10-16: no Modeling/Freeform/Selection/Object Paint/Populate presets). The main
-toolbar's Toggle Ribbon button is a placeholder.
+Not built (maintainer, 2026-10-16: no Modeling/Freeform/Selection/Object Paint/Populate presets): the Max
+Layout has no ribbon strip. The main toolbar's Toggle Ribbon button is a placeholder.
 
 ### Scene Explorer (left)
 Menus Select, Display, Edit, Customize; Find field; header icons (hierarchy/layer view, lock, filters). Columns
@@ -210,15 +214,19 @@ Zoom Extents All (flyout), Field of View / Zoom Region, Pan View, Orbit (flyout)
 
 - **Menu bar**: `TOPBAR_MT_editor_menus.draw` replaced while `use_max_chrome` is on; the workspace tabs (and the
   scene / view layer selectors) in the top bar are hidden (`TOPBAR_HT_upper_bar.draw_left/draw_right`).
-- **Toolbar strip** (main toolbar): editors shrunk to their header (an area can be as short as its
-  header), whose header draw is overridden only for areas that the Max layout marked as strips.
-- **Vertical strips** (explorer filter bar, viewport layout tab bar): narrow editors whose main region draws a
-  column of icon buttons.
+- **Toolbar strips** (main toolbar; Scene Explorer menu, find and footer rows; status row 1): Info editors
+  shrunk to their header (an area can be as short as its header), whose header draw is overridden only for
+  areas that the Max layout marked as strips (`screen["mx_chrome_areas"]`, see
+  `docs/decisions/0009-max-chrome-frame.md`).
+- **Vertical strips** (explorer filter bar, viewport layout tab bar): narrow Properties editors showing the
+  Collection tab pinned to the scene collection (Blender draws no panels there), with one header-less panel
+  drawing a column of icon buttons.
 - **Viewport labels**: the 3D viewport header becomes the label menus, drawn transparently over the viewport
   (region overlap), in Max viewports only.
 - **ViewCube**: a Python gizmo group with a clickable cube.
-- **Time slider / track bar**: a Timeline editor with its header redrawn as the time slider.
-- **Status bar**: `STATUSBAR_HT_header.draw` replaced with the Max status line and controls.
+- **Time slider / track bar**: a Timeline editor with its header redrawn as the time slider, its main region
+  as the track bar. Row 1 of the status line is a toolbar strip under it.
+- **Status bar**: `STATUSBAR_HT_header.draw` replaced with row 2 of the Max status line and controls.
 
 C changes that would improve fidelity (later, need approval): hide Blender's built-in tool panels under the
 command panel; area-level flags to mark strips instead of geometry tests; a real two-row status bar.
