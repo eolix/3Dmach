@@ -82,7 +82,7 @@ MODIFIERS = (
     _later("POLY_SELECT", "Poly Select", 'SELECTION', MESH, "Stack-level sub-object selection needs Phase 3 work"),
     _later("PATCH_SELECT", "Patch Select", 'SELECTION'),
     _later("SPLINE_SELECT", "Spline Select", 'SELECTION', CURVE),
-    _later("VOLUME_SELECT", "Vol. Select", 'SELECTION'),
+    _later("VOLUME_SELECT", "Volume Select", 'SELECTION'),
     _later("FFD_SELECT", "FFD Select", 'SELECTION'),
     _later("SELECT_BY_CHANNEL", "Select By Channel", 'SELECTION', MESH),
 
@@ -96,7 +96,7 @@ MODIFIERS = (
     _later("FILLET_CHAMFER", "Fillet/Chamfer", 'SPLINE', CURVE),
     MaxModifier("LATHE", "Lathe", 'SPLINE', 'SCREW', {"axis": 'Y', "steps": 16, "render_steps": 16},
                 object_types=MESH_CURVE, description="Screw (360 degrees around Y)"),
-    _later("NORMALIZE_SPLINE", "Normalize Spl.", 'SPLINE', CURVE),
+    _later("NORMALIZE_SPLINE", "Normalize Spline", 'SPLINE', CURVE),
     MaxModifier("RENDERABLE_SPLINE", "Renderable Spline", 'SPLINE', setup="setup_renderable_spline",
                 object_types=CURVE, description="Sets the curve's bevel depth (thickness)"),
     _later("SURFACE_PATCH", "Surface", 'SPLINE', CURVE),
@@ -129,7 +129,6 @@ MODIFIERS = (
                 {"decimate_type": 'COLLAPSE', "ratio": 0.5},
                 object_types=MESH, description="Decimate, collapse (50% of the vertices)"),
     _later("QUADIFY_MESH", "Quadify Mesh", 'MESH', MESH),
-    _later("RETOPOLOGY", "Retopology", 'MESH', MESH),
     MaxModifier("SMOOTH", "Smooth", 'MESH', setup="setup_smooth_by_angle", object_types=MESH,
                 description="Smooth by Angle (auto smooth, 30 degrees threshold)"),
     _later("STL_CHECK", "STL Check", 'MESH', MESH),
@@ -149,7 +148,6 @@ MODIFIERS = (
                 object_types=MESH, description="Weld"),
     MaxModifier("BOOLEAN", "Boolean", 'MESH', 'BOOLEAN', {"operation": 'DIFFERENCE'},
                 object_types=MESH, description="Boolean (pick the operand in the parameters)"),
-    _later("DATA_CHANNEL", "Data Channel", 'MESH', MESH),
 
     # Conversion.
     MaxModifier("TURN_TO_MESH", "Turn to Mesh", 'CONVERSION', 'TRIANGULATE', object_types=MESH,
@@ -183,7 +181,7 @@ MODIFIERS = (
 
     # UV coordinates.
     _later("CAMERA_MAP", "Camera Map", 'UV', MESH),
-    _later("MAPSCALER", "MapScaler (WSM)", 'UV', MESH),
+    _later("MAPSCALER", "MapScaler", 'UV', MESH),
     _later("PROJECTION", "Projection", 'UV', MESH),
     _later("UNWRAP_UVW", "Unwrap UVW", 'UV', MESH, "Coming later; use the UV Editing workspace meanwhile"),
     _later("UVW_MAP", "UVW Map", 'UV', MESH, "Max-style projections are coming later (ROADMAP 2d)"),
@@ -197,8 +195,6 @@ MODIFIERS = (
                 description="Mesh Cache (pick the cache file in the parameters)"),
 
     # Subdivision surfaces.
-    _later("CREASE", "Crease", 'SUBDIVISION', MESH),
-    _later("CREASESET", "CreaseSet", 'SUBDIVISION', MESH),
     _later("HSDS", "HSDS", 'SUBDIVISION', MESH),
     MaxModifier("MESHSMOOTH", "MeshSmooth", 'SUBDIVISION', 'SUBSURF',
                 {"levels": 1, "render_levels": 1, "subdivision_type": 'CATMULL_CLARK'},
@@ -270,13 +266,12 @@ MODIFIERS = (
 
     # Surface.
     _later("DISP_APPROX", "Disp Approx", 'SURFACE', MESH),
-    _later("DISPLACE_MESH", "Displace Mesh (WSM)", 'SURFACE', MESH),
+    _later("DISPLACE_MESH", "Displace Mesh", 'SURFACE', MESH),
     _later("MATERIAL", "Material", 'SURFACE', MESH),
     _later("MATERIAL_BY_ELEMENT", "MaterialByElement", 'SURFACE', MESH),
 
     # NURBS editing, radiosity, cameras.
-    _later("SURF_DEFORM_NURBS", "Surf Deform (NURBS)", 'NURBS'),
-    _later("NSURF_SEL", "NSurf Sel", 'NURBS'),
+    _later("NSURF_SEL", "Surface Select", 'NURBS'),
     _later("SUBDIVIDE", "Subdivide", 'RADIOSITY', MESH),
     _later("CAMERA_CORRECTION", "Camera Correction", 'CAMERAS', frozenset({'CAMERA'})),
 )
