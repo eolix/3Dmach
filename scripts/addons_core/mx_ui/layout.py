@@ -319,6 +319,9 @@ def zoom_extents_all(window, screen, roles):
     """Frame the whole scene in every viewport, as Max's viewports do on a new layout."""
     if bpy.app.background:
         return
+    if window.screen != screen or screen.is_temporary:
+        # E.g. a viewport was maximised (Alt+W) while the layout was being built: leave the views alone.
+        return
     for role in VIEWPORTS:
         area = roles[role]
         region = next((r for r in area.regions if r.type == 'WINDOW'), None)
@@ -370,7 +373,8 @@ def start_build(window, workspace):
             next(state["steps"])
         except StopIteration:
             return None
-        except (RuntimeError, ReferenceError) as ex:
+        except (RuntimeError, ReferenceError, TypeError) as ex:
+            # TypeError: e.g. a context override refused because the window shows a temporary screen.
             print("Max Layout: could not build the layout:", ex)
             return None
         return _BUILD_STEP_INTERVAL
