@@ -12,8 +12,11 @@ from their stored parameters. This module must not import ``bpy`` or ``mathutils
 Conventions, all following Max:
 
 - Z is up. Box, Cylinder, Cone, Tube and Pyramid have their pivot at the centre of the base; Sphere, GeoSphere
-  and Torus at their centre (unless "base to pivot"); Plane at its centre.
-- Box: width along X, length along Y, height along Z. Pyramid: width X, depth Y. Plane: width X, length Y.
+  and Torus at their centre (unless "base to pivot"); Plane at its centre. Extended primitives: ChamferBox,
+  ChamferCyl, Capsule, OilTank, Spindle, Gengon, L-Ext and C-Ext at the centre of the base, Prism at the corner
+  where side 1 starts, Torus Knot and Hedra at their centre.
+- Box and ChamferBox: width along X, length along Y, height along Z. Pyramid: width X, depth Y. Plane: width X,
+  length Y. L-Ext / C-Ext: front (and back) length along X, side length along Y.
 - Angles (slice, rotation, twist) are in radians. Ring vertices run counter-clockwise seen from +Z and start at
   +X (Cylinder, Cone and the extended primitives) or at +Y (Sphere, Tube, Torus), as in Max (:data:`RING_START`).
   With slice on, the part that is kept runs counter-clockwise from ``slice_from`` to ``slice_to``, measured from
@@ -1729,7 +1732,7 @@ def _torus_knot(base_curve, radius, segments, p, q, warp_count, warp_height, cro
     # Rotation-minimising frames, starting with the normal pointing away from Z (the outside, as on the Torus);
     # the angle left over after going round is spread along the knot so that the tube closes.
     first = curve[0]
-    normal = sub((first[0], first[1], 0.0), (0.0, 0.0, 0.0))
+    normal = (first[0], first[1], 0.0)
     normal = unit(sub(normal, tuple(c * dot(normal, tangents[0]) for c in tangents[0])))
     normals = [normal]
     for i in range(1, m + 1):
