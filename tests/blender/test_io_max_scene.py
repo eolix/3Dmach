@@ -230,6 +230,33 @@ class SceneImportTest(unittest.TestCase):
         self.assertEqual([len(p.vertices) for p in mesh.polygons], [4])
 
 
+class PolygonMergeTest(unittest.TestCase):
+
+    def test_numpy_path_matches_general_merge(self):
+        from mx_io_max import polygons
+        # A 10 x 10 grid of quads split into triangles (hidden diagonals), plus a hexagon fan (general merge).
+        faces, vis, uvs = [], [], []
+        for y in range(10):
+            for x in range(10):
+                a = y * 11 + x
+                faces += [(a, a + 1, a + 12), (a, a + 12, a + 11)]
+                vis += [0b011, 0b110]
+                uvs += [(a, a + 1, a + 12), (a, a + 12, a + 11)]
+        base = 200
+        fan = [(base, base + 1, base + 2), (base, base + 2, base + 3), (base, base + 3, base + 4),
+               (base, base + 4, base + 5)]
+        faces += fan
+        vis += [0b011, 0b010, 0b010, 0b110]
+        uvs += fan
+        polygons.NUMPY_FROM = 64
+        fast = polygons.merge_triangles(faces, vis, [uvs])
+        slow = polygons._merge(faces, vis, [uvs])
+        self.assertEqual(sorted(sorted(p) for p in fast[0]), sorted(sorted(p) for p in slow[0]))
+        self.assertEqual(sorted(len(p) for p in fast[0]), [4] * 100 + [6])
+        for poly, uv_poly in zip(*[fast[0], fast[2][0]]):
+            self.assertEqual(list(poly), list(uv_poly))
+
+
 # Decoded stand-ins (the dataclass names are what the builder matches on).
 
 @dataclasses.dataclass

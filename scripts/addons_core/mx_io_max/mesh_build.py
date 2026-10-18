@@ -30,6 +30,16 @@ MATERIAL_ID_ATTRIBUTE = "mx_material_id"
 def _face_arrays(faces):
     """``(sizes, starts, corner vertex indices)`` as int32 arrays."""
     count = len(faces)
+    if count and len(faces[0]) in (3, 4):
+        # Triangle-only or quad-only meshes (most Editable Meshes): one conversion, no per-face work.
+        try:
+            block = np.asarray(faces, dtype=np.int32)
+        except ValueError:
+            block = None
+        if block is not None and block.ndim == 2:
+            size = block.shape[1]
+            return (np.full(count, size, dtype=np.int32), np.arange(0, count * size, size, dtype=np.int32),
+                    block.reshape(-1))
     sizes = np.fromiter(map(len, faces), dtype=np.int32, count=count)
     total = int(sizes.sum())
     corners = np.fromiter(itertools.chain.from_iterable(faces), dtype=np.int32, count=total)
