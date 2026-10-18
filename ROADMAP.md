@@ -202,18 +202,18 @@ Goal: open real-world `.max` files with correct geometry, structure and material
 - [x] Read the Compound File (OLE) container and list its streams.
 - [x] Parse chunk trees; handle compressed streams where present.
 - [x] Parse the class directory and DLL directory; build a registry mapping class IDs → names → decoder modules.
-- [~] Parse scene nodes: name, parent, transform (node TM, object offset / pivot), visibility, hidden/frozen state, wire colour, layer. *(Name, parent, transform, object offset; visibility/hidden/frozen/wire colour/layer not decoded yet (need real files).)*
+- [~] Parse scene nodes: name, parent, transform (node TM, object offset / pivot), visibility, hidden/frozen state, wire colour, layer. *(Name, parent, transform, object offset; visibility/hidden/frozen/wire colour/layer not decoded yet (need real files).)* *(Verified on 623 real files: name, parent, transforms, object offset, wire colour, layer slot. Hidden/frozen bits partly guessed.)*
 - [x] Resolve references so instances share one data block.
-- [ ] Read scene units and convert to metres. Max and Blender are both Z-up; verify axis handling against reference exports.
+- [x] Read scene units and convert to metres. Max and Blender are both Z-up; verify axis handling against reference exports. *(Scene object chunk 0x8520 (unit + scale), verified; importer uses it by default.)*
 - [x] `maxdump` CLI: `python -m maxfile.dump file.max` prints the scene tree, class list and any unknown classes. This is the main tool for contributors adding support for new classes. *(`docs/format/maxdump.md`.)*
 
 #### 2c. Geometry
 
 Priority order (most common in real files first):
 
-- [~] Editable Poly, including material IDs per face, smoothing groups, UV channels, vertex colours. *(Decoded per the documented layouts; not yet verified on real files. Vertex colours not imported.)*
-- [~] Editable Mesh. *(Same: unverified on real files.)*
-- [~] Standard primitives → rebuilt as **live** primitives from Phase 1c (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere). *(Max's cached mesh is used when present; otherwise rebuilt live from the decoded parameters (segment counts not decoded yet).)*
+- [x] Editable Poly, including material IDs per face, smoothing groups, UV channels, vertex colours. *(Verified on 10,260 corpus meshes (6.4M faces): material IDs (0-based on disk), smoothing groups, map channels. Vertex colours not imported yet.)*
+- [x] Editable Mesh. *(Verified on the corpus.)*
+- [~] Standard primitives → rebuilt as **live** primitives from Phase 1c (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere). *(Max's cached mesh is used when present; otherwise rebuilt live from the decoded parameters (segment counts not decoded yet).)* *(Parameters verified on real files (Max doesn't cache primitive meshes); topology alignment in progress.)*
 - [ ] Extended primitives (ChamferBox, ChamferCyl, …).
 - [ ] Splines: Line, Rectangle, Circle, Arc, Text → Blender curves, including renderable-spline thickness.
 - [ ] Groups → empties/collections with matching hierarchy.
@@ -246,12 +246,12 @@ Each supported Max modifier becomes an equivalent Blender modifier (or Geometry 
 
 Translate to Principled BSDF node trees that render close to the original in Cycles and acceptably in EEVEE.
 
-- [~] **Multi/Sub-Object** → Blender material slots assigned by face material ID. Highest priority: almost every real scene uses it. *(Slots by material ID; the ID list itself isn't decoded yet.)*
-- [~] Physical Material. *(Converter done; parameter decoding needs real files.)*
-- [~] Standard (Legacy). *(Converter done; parameter decoding needs real files.)*
+- [x] **Multi/Sub-Object** → Blender material slots assigned by face material ID. Highest priority: almost every real scene uses it. *(IDs (0-based on disk) verified against 1,064 meshes.)*
+- [~] Physical Material. *(Decoded from real files; converter done.)*
+- [~] Standard (Legacy). *(Decoded from real files (shader block + map slots); converter done.)*
 - [~] VRayMtl. *(Converter done; only diffuse and reflection glossiness decoded so far.)*
 - [~] Corona Physical Material / Corona Legacy Material. *(Converter done; parameter decoding needs real files.)*
-- [~] Arnold Standard Surface. *(Converter done; sockets decoded per the documented layout.)*
+- [~] Arnold Standard Surface. *(Decoded from real files; converter done.)*
 - [~] Blend / layered materials → Mix Shader. *(Node builder done; decoding not yet.)*
 - [~] Maps: Bitmap (path, tiling, offset, rotation, real-world scale, gamma), Falloff, Mix, Color Correction, Noise, Checker, Gradient, Normal Bump / VRayNormalMap / CoronaNormal, Bump. *(Node builders for all listed maps; only bitmap paths are decoded so far.)*
 - [x] Texture path resolution: absolute path → relative to `.max` → a user-chosen search folder → report missing. *(`materials/textures.py`.)*
@@ -259,8 +259,8 @@ Translate to Principled BSDF node trees that render close to the original in Cyc
 
 #### 2f. Cameras and lights
 
-- [~] Physical Camera, Target/Free Camera (FOV, sensor, target → Track To constraint). *(Conversion done (`lights.py`, `docs/format/lights.md`); camera decoding needs real files.)*
-- [~] Photometric lights, V-Ray lights, Corona lights, Sun/Sky → Blender light types with approximate intensity conversion; document the formulas. *(Conversion done; light decoding needs real files.)*
+- [~] Physical Camera, Target/Free Camera (FOV, sensor, target → Track To constraint). *(Conversion done (`lights.py`, `docs/format/lights.md`); camera decoding needs real files.)* *(243 cameras decode from the corpus; importer wiring of targets in progress.)*
+- [~] Photometric lights, V-Ray lights, Corona lights, Sun/Sky → Blender light types with approximate intensity conversion; document the formulas. *(591 lights decode from the corpus (no V-Ray/Corona content in it).)*
 - [~] Environment / background colour and HDRI map → World. *(Conversion done; decoding needs real files.)*
 
 #### 2g. User experience
