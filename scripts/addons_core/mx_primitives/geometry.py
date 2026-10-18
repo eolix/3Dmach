@@ -14,9 +14,10 @@ Conventions, all following Max:
 - Z is up. Box, Cylinder, Cone, Tube and Pyramid have their pivot at the centre of the base; Sphere, GeoSphere
   and Torus at their centre (unless "base to pivot"); Plane at its centre.
 - Box: width along X, length along Y, height along Z. Pyramid: width X, depth Y. Plane: width X, length Y.
-- Angles (slice, rotation, twist) are in radians. Ring vertices start at +X and run counter-clockwise seen
-  from +Z. With slice on, the part that is kept runs counter-clockwise from ``slice_from`` to ``slice_to``;
-  equal angles give the whole object back.
+- Angles (slice, rotation, twist) are in radians. Ring vertices run counter-clockwise seen from +Z and start at
+  +X (Cylinder, Cone and the extended primitives) or at +Y (Sphere, Tube, Torus), as in Max (:data:`RING_START`).
+  With slice on, the part that is kept runs counter-clockwise from ``slice_from`` to ``slice_to``, measured from
+  the ring start; equal angles give the whole object back.
 - Faces are wound counter-clockwise seen from outside, so normals point outwards.
 - ``material_ids`` are 0-based (Max shows ID + 1 in its UI).
 - ``smoothing_groups`` are Max-style 32-bit masks: two faces sharing an edge are smoothed across it when their
@@ -297,6 +298,22 @@ class _Builder:
         )
 
 
+def _band(b, upper, lower, uv_upper, uv_lower, count, group=0, material=0, pole_first=False):
+    """
+    ``count`` quads between two rings running counter-clockwise around +Z, ``lower`` below ``upper`` (Max's sphere
+    and capsule layout): ``upper[k], lower[k], lower[k + 1], upper[k + 1]``, facing outwards. A pole (a repeated
+    vertex) gives triangles; ``pole_first`` starts each face at ``lower[k]`` instead (Max's bottom fans).
+    """
+    nu, nl = len(upper), len(lower)
+    for k in range(count):
+        indices = [upper[k % nu], lower[k % nl], lower[(k + 1) % nl], upper[(k + 1) % nu]]
+        uvs = [uv_upper[k], uv_lower[k], uv_lower[k + 1], uv_upper[k + 1]]
+        if pole_first:
+            indices = indices[1:] + indices[:1]
+            uvs = uvs[1:] + uvs[:1]
+        b.face(indices, uvs, group, material)
+
+
 def _arc(count, slice_on, slice_from, slice_to):
     """
     Angles of ``count`` segments around Z: returns ``(angles, closed)`` with ``count + 1`` angles.
@@ -309,12 +326,15 @@ def _arc(count, slice_on, slice_from, slice_to):
     return [TAU * k / count for k in range(count + 1)], True
 
 
-def _ring(builder, radius, z, angles, closed):
-    """Vertices of a ring around Z. A ring of radius 0 is a single vertex, repeated."""
+def _ring(builder, radius, z, angles, closed, start=0.0):
+    """
+    Vertices of a ring around Z at ``angles`` counted from ``start`` (an angle from +X). A ring of radius 0 is a
+    single vertex, repeated.
+    """
     count = len(angles) - 1 if closed else len(angles)
     if radius == 0.0:
         return [builder.vert(0.0, 0.0, z)] * count
-    return [builder.vert(radius * math.cos(a), radius * math.sin(a), z) for a in angles[:count]]
+    return [builder.vert(radius * math.cos(a + start), radius * math.sin(a + start), z) for a in angles[:count]]
 
 
 def _cyclic_group(index, count, closed):
@@ -324,25 +344,34 @@ def _cyclic_group(index, count, closed):
     return 1 if index % 2 == 0 else 2
 
 
-def _cap_uvs(angles, fraction, mirror):
+def _cap_uvs(angles, fraction, mirror, start=0.0):
     """Planar UVs of a ring of relative radius ``fraction`` on a disc cap, mirrored for bottom caps."""
     sign = -1.0 if mirror else 1.0
-    return [(0.5 + sign * 0.5 * fraction * math.cos(a), 0.5 + 0.5 * fraction * math.sin(a)) for a in angles]
+    return [(0.5 + sign * 0.5 * fraction * math.cos(a + start), 0.5 + 0.5 * fraction * math.sin(a + start))
+            for a in angles]
+
+
+# Angle from +X of the first vertex of each ring (the other kinds start at +X). Verified on the corpus: spheres,
+# tubes and tori under modifiers have the input bounding boxes of rings starting at +Y (11 spheres with 14, 18 and
+# 19 segments, tubes with 18 and 87 sides, a torus with 41 segments), cylinders and cones those of rings starting
+# at +X (32 and 79 objects); spheres converted to Editable Poly / Mesh have their first ring vertex on +Y, and a
+# converted Capsule and Cylinders on +X.
+RING_START = {"SPHERE": math.pi / 2, "TUBE": math.pi / 2, "TORUS": math.pi / 2}
 
 
 # -----------------------------------------------------------------------------
 # Box
 
-# Material IDs (0-based) and smoothing groups per side. Max gives each side of a box its own material ID and
-# smoothing group; which number goes to which side is unverified (see the decision record).
+# Material IDs (0-based) and smoothing groups per side, as on Boxes converted to Editable Poly / Mesh in the corpus
+# (Max's 1-based IDs: top 1, bottom 2, left 3, right 4, front 5, back 6).
 BOX_SIDES = {
     #          material, smoothing group
     "BOTTOM": (1, 1 << 1),
     "TOP": (0, 1 << 2),
     "FRONT": (4, 1 << 3),   # -Y
-    "RIGHT": (2, 1 << 4),   # +X
+    "RIGHT": (3, 1 << 4),   # +X
     "BACK": (5, 1 << 5),    # +Y
-    "LEFT": (3, 1 << 6),    # -X
+    "LEFT": (2, 1 << 6),    # -X
 }
 
 
@@ -382,8 +411,10 @@ def _box(length, width, height, length_segments, width_segments, height_segments
     def uv_grid(na, nb, mirror=False):
         return [[((na - a) / na if mirror else a / na, bb / nb) for bb in range(nb + 1)] for a in range(na + 1)]
 
-    # Faces: bottom, top, front, right, back, left.
-    grid("BOTTOM", lambda a, c: (ws - a, c, 0), uv_grid(ws, ls))
+    # Faces: bottom, top, front, right, back, left (Max's order). Corners as on converted Max boxes: bottom quads
+    # start at their (-X, -Y) corner and run along +Y first; the others start at their lower left corner seen from
+    # outside.
+    grid("BOTTOM", lambda a, c: (c, a, 0), [[(1.0 - c / ws, a / ls) for c in range(ws + 1)] for a in range(ls + 1)])
     grid("TOP", lambda a, c: (a, c, hs), uv_grid(ws, ls))
     grid("FRONT", lambda a, c: (a, 0, c), uv_grid(ws, hs))
     grid("RIGHT", lambda a, c: (ws, a, c), uv_grid(ls, hs))
@@ -437,12 +468,14 @@ def _sphere(radius, segments, smooth, hemisphere, hemisphere_mode, slice_on, sli
         bottom_z = -r
     z_offset = -bottom_z if base_to_pivot else 0.0
 
-    # Vertices: top pole, rings from the top down, then the bottom pole (or the centre of the hemisphere's base).
+    # Vertices (as on spheres converted in Max): top pole, rings from the top down starting at +Y, then the bottom
+    # pole (or the centre of the hemisphere's base).
+    start = RING_START["SPHERE"]
     top = b.vert(0.0, 0.0, r + z_offset)
     rings = []
     for theta in thetas:
         rho = r * math.sin(theta)
-        rings.append(_ring(b, rho, r * math.cos(theta) + z_offset, angles, closed))
+        rings.append(_ring(b, rho, r * math.cos(theta) + z_offset, angles, closed, start))
     count = len(rings[0])
     bottom = b.vert(0.0, 0.0, bottom_z + z_offset)
 
@@ -452,16 +485,18 @@ def _sphere(radius, segments, smooth, hemisphere, hemisphere_mode, slice_on, sli
         return [(u, 1.0 - theta / math.pi) for u in us]
 
     group = 1 if smooth else 0
-    # Faces: bands from the top down.
+    # Faces, as in Max: the top fan (pole, ring[k], ring[k + 1]), then bands from the top down, each quad
+    # (upper[k], lower[k], lower[k + 1], upper[k + 1]), then the bottom fan (pole, ring[k + 1], ring[k]).
     prev, prev_theta = [top] * count, 0.0
     for ring, theta in zip(rings, thetas):
-        b.strip(ring, prev, uv_row(theta), uv_row(prev_theta), n, group, 0)
+        _band(b, prev, ring, uv_row(prev_theta), uv_row(theta), n, group, 0)
         prev, prev_theta = ring, theta
     if cut:
         # Base of the hemisphere: a fan around a centre vertex.
-        b.strip([bottom] * count, prev, _cap_uvs(angles, 0.0, True), _cap_uvs(angles, 1.0, True), n, 2, 0)
+        _band(b, prev, [bottom] * count, _cap_uvs(angles, 1.0, True, start), _cap_uvs(angles, 0.0, True, start),
+              n, 2, 0, pole_first=True)
     else:
-        b.strip([bottom] * count, prev, uv_row(math.pi), uv_row(prev_theta), n, group, 0)
+        _band(b, prev, [bottom] * count, uv_row(prev_theta), uv_row(math.pi), n, group, 0, pole_first=True)
 
     if not closed:
         # Slice faces: one n-gon per side, the half disc between the meridian and the axis.
@@ -759,15 +794,17 @@ def _tube(radius1, radius2, height, height_segments, cap_segments, sides, smooth
     outer_r, inner_r = max(radius1, radius2), min(radius1, radius2)
     h, hs, cs, n = height, height_segments, cap_segments, sides
     angles, closed = _arc(n, slice_on, slice_from, slice_to)
+    start = RING_START["TUBE"]
 
     def cap_radius(i):
         return inner_r + (outer_r - inner_r) * i / cs
 
-    # Vertices: outer wall rings upwards, inner wall rings upwards, then the rings inside the bottom and top caps.
-    outer = [_ring(b, outer_r, h * j / hs, angles, closed) for j in range(hs + 1)]
-    inner = [_ring(b, inner_r, h * j / hs, angles, closed) for j in range(hs + 1)]
-    bottom = [inner[0]] + [_ring(b, cap_radius(i), 0.0, angles, closed) for i in range(1, cs)] + [outer[0]]
-    top = [inner[hs]] + [_ring(b, cap_radius(i), h, angles, closed) for i in range(1, cs)] + [outer[hs]]
+    # Vertices (rings start at +Y, as in Max): outer wall rings upwards, inner wall rings upwards, then the rings
+    # inside the bottom and top caps.
+    outer = [_ring(b, outer_r, h * j / hs, angles, closed, start) for j in range(hs + 1)]
+    inner = [_ring(b, inner_r, h * j / hs, angles, closed, start) for j in range(hs + 1)]
+    bottom = [inner[0]] + [_ring(b, cap_radius(i), 0.0, angles, closed, start) for i in range(1, cs)] + [outer[0]]
+    top = [inner[hs]] + [_ring(b, cap_radius(i), h, angles, closed, start) for i in range(1, cs)] + [outer[hs]]
     count = len(outer[0])
 
     wall_groups = (1, 2) if smooth else (0, 0)
@@ -785,15 +822,15 @@ def _tube(radius1, radius2, height, height_segments, cap_segments, sides, smooth
         b.strip(inner[j + 1], inner[j], [(u, (j + 1) / hs) for u in us], [(u, j / hs) for u in us],
                 n, wall_groups[1], TUBE_MATERIALS["INNER"])
     for i in range(cs):
-        b.strip(bottom[i], bottom[i + 1], _cap_uvs(angles, cap_fraction(i), True),
-                _cap_uvs(angles, cap_fraction(i + 1), True), n, 4, TUBE_MATERIALS["BOTTOM"])
+        b.strip(bottom[i], bottom[i + 1], _cap_uvs(angles, cap_fraction(i), True, start),
+                _cap_uvs(angles, cap_fraction(i + 1), True, start), n, 4, TUBE_MATERIALS["BOTTOM"])
     for i in range(cs, 0, -1):
-        b.strip(top[i], top[i - 1], _cap_uvs(angles, cap_fraction(i), False),
-                _cap_uvs(angles, cap_fraction(i - 1), False), n, 8, TUBE_MATERIALS["TOP"])
+        b.strip(top[i], top[i - 1], _cap_uvs(angles, cap_fraction(i), False, start),
+                _cap_uvs(angles, cap_fraction(i - 1), False, start), n, 8, TUBE_MATERIALS["TOP"])
 
     if not closed:
         for end, e in ((0, 0), (1, count - 1)):
-            a = angles[e]
+            a = angles[e] + start
             ca, sa = math.cos(a), math.sin(a)
             grid = {}
             for j in range(hs + 1):
@@ -823,11 +860,12 @@ def _torus(radius1, radius2, rotation, twist, segments, sides, smooth_mode, slic
     angles, closed = _arc(m, slice_on, slice_from, slice_to)
     ring_count = m if closed else m + 1
 
-    # Vertices: one ring (cross-section) per segment, counter-clockwise around Z; in each ring the vertices start
-    # on the outside of the torus (+ rotation, + the twist so far) and run upwards around the tube.
+    # Vertices: one ring (cross-section) per segment, counter-clockwise around Z from +Y as in Max; in each ring
+    # the vertices start on the outside of the torus (+ rotation, + the twist so far) and run upwards around the
+    # tube.
     rings = []
     for i in range(ring_count):
-        phi = angles[i]
+        phi = angles[i] + RING_START["TORUS"]
         cp, sp = math.cos(phi), math.sin(phi)
         offset = rotation + twist * i / m
         ring = []
