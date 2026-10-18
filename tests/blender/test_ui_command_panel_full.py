@@ -120,6 +120,7 @@ class CatalogTest(unittest.TestCase):
                           "Plane", "TextPlus"])
         extended = next(s for s in catalog().CREATE[0].subcategories if s.label == "Extended Primitives")
         self.assertEqual(len(extended.buttons), 13)
+        self.assertEqual([b.label for b in extended.buttons if not b.implemented], ["RingWave", "Hose"])
         splines = next(s for s in catalog().CREATE[1].subcategories if s.label == "Splines")
         self.assertEqual([b.label for b in splines.buttons][-3:], ["Egg", "Section", "Freehand"])
 
@@ -495,7 +496,7 @@ class CreateTest(unittest.TestCase):
         self.assertGreater(count, 30)
 
     def test_placeholder_and_invoke(self):
-        self.assertEqual(bpy.ops.object.mx_create_type(entry="GEOMETRY.EXTENDED.HEDRA"), {'CANCELLED'})
+        self.assertEqual(bpy.ops.object.mx_create_type(entry="GEOMETRY.EXTENDED.RINGWAVE"), {'CANCELLED'})
         with self.assertRaises(RuntimeError):
             bpy.ops.object.mx_create_type(entry="NO.SUCH")
         # From Edit Mode: creation goes back to object level first, like Max.
