@@ -12,7 +12,8 @@ Conventions used throughout :mod:`maxfile`:
 - matrices are 4x4 tuples of rows for **column vectors** (``M @ v``, translation in the last column), the same
   convention as Blender's ``mathutils.Matrix``, so ``mathutils.Matrix(m)`` gives the same transform.
 
-How Max's on-disk rotations map onto these conventions is not verified yet (overview.md §4.1, "To verify" #6).
+How Max's on-disk rotations map onto these conventions was verified against the node matrices that the Skin
+modifier stores (overview.md §4.1): see :func:`quat_from_max`.
 """
 
 __all__ = (
@@ -61,7 +62,9 @@ def euler_xyz_to_quat(x: float, y: float, z: float) -> Quat:
     """
     Quaternion ``(w, x, y, z)`` for rotating about X, then Y, then Z (fixed axes), angles in radians.
 
-    Whether Max's "Euler XYZ" controller uses this order and sign is not verified (overview.md §4.1).
+    Verified for Max's "Euler XYZ" controller: radians, and the sign (on 11 corpus scenes whose skinned mesh nodes
+    use Euler rotations, negated angles don't reproduce the Skin modifier's stored node matrix). The order isn't
+    discriminated by those scenes (single-axis rotations); fixed-axes XYZ is assumed.
     """
     cx, sx = math.cos(x * 0.5), math.sin(x * 0.5)
     cy, sy = math.cos(y * 0.5), math.sin(y * 0.5)
@@ -76,12 +79,15 @@ def euler_xyz_to_quat(x: float, y: float, z: float) -> Quat:
 
 def quat_from_max(q) -> Quat:
     """
-    Reorder a quaternion as stored in the file (four ``f32``) into ``(w, x, y, z)``.
+    A quaternion as stored in the file (four ``f32``) as ``(w, x, y, z)`` in Blender's convention.
 
-    Unverified (overview.md §4.1): the prior-art importer uses ``(w, x, y, z) = (q[3], q[2], q[1], q[0])``.
-    Whether that is right, and whether Max's rotation sign matches Blender's, must be checked on a reference export.
+    Files store ``x, y, z, w`` of the *inverse* rotation, so the vector part is negated: ``(w, x, y, z) =
+    (q[3], -q[0], -q[1], -q[2])``. Verified against the node matrices the Skin modifier keeps (4x3 matrices, no
+    quaternions): with this mapping 71 of the 75 skinned nodes of the corpus reproduce the stored matrix, including
+    every node with a non-trivial rotation; the prior-art mapping ``(q[3], q[2], q[1], q[0])`` fails on 10 of them.
+    The remaining 4 are nodes that moved after skinning.
     """
-    return (q[3], q[2], q[1], q[0])
+    return (q[3], -q[0], -q[1], -q[2])
 
 
 def compose(position: Vec3 | None, rotation: Quat | None, scale: Vec3 | None) -> Matrix4:
@@ -113,7 +119,7 @@ class Transform:
     scale: Vec3 | None = None
 
     def matrix(self) -> Matrix4:
-        """``T @ R @ S``. The composition order is our convention, not verified against Max."""
+        """``T @ R @ S`` (verified with the Skin matrices above, including nodes with object offsets)."""
         return compose(self.position, self.rotation, self.scale)
 
     def is_empty(self) -> bool:

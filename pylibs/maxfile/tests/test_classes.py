@@ -50,7 +50,7 @@ def _class_stream(*entries):
 
 def test_class_directory():
     b = SceneBuilder()
-    dll = b.dll((0x2037, "Description"), (0x2039, "thing.dlo"))
+    dll = b.dll((0x2039, "Description"), (0x2037, "thing.dlo"))
     b.cls("Node", (1, 0), 1)
     b.cls("Thing", (0x11112222, 0x33334444), 0x10, dll)
     streams = b.streams()
@@ -62,7 +62,8 @@ def test_class_directory():
     assert node.index == 0 and node.name == "Node" and node.class_id == ClassID(1, 0)
     assert node.superclass_id == 1 and node.dll_index == NULL and node.dll is None
     assert thing.class_id == ClassID(0x11112222, 0x33334444) and thing.dll is dlls[0]
-    assert dlls[0].strings == {0x2037: "Description", 0x2039: "thing.dlo"}
+    assert dlls[0].file_name == "thing.dlo" and dlls[0].description == "Description"
+    assert dlls.max_release == 20000
     assert classes.get(5) is None and classes.get(-1) is None
 
 
@@ -104,15 +105,21 @@ def test_class_directory_fallback_name():
 # Registry
 
 def test_seeded_known_classes():
-    poly = registry.known_class(0x192F60981BF8338D)
-    assert poly.name == "Editable Poly" and poly.category == "geometry" and not poly.verified
-    assert registry.known_class(ClassID(0x1BF8338D, 0x192F6098)) is poly
-    assert registry.known_class((0x12345, 0x6789)) is None
+    poly = registry.known_class(0x192F60981BF8338D, 0x10)
+    assert poly.name == "Editable Poly" and poly.category == "geometry" and poly.verified
+    assert registry.known_class(ClassID(0x1BF8338D, 0x192F6098), 0x10) is poly
+    assert registry.known_class(0x192F60981BF8338D) is None     # Seed entries need their superclass.
+    assert registry.known_class((0x12345, 0x6789), 0x10) is None
     assert registry.known_class(None) is None
-    # The node entry is registered for superclass 1 only.
+    # Class IDs repeat across superclasses.
     assert registry.known_class(0x1, 0x1).name == "Node"
+    assert registry.known_class(0x2, 0x1).name == "RootNode"
+    assert registry.known_class(0x2, 0xC00).name == "Standard"
+    assert registry.known_class(0x10, 0x10).name == "Box" and registry.known_class(0x10, 0x810).name == "Bend"
     assert registry.known_class(0x1, 0x2) is None
-    assert all(not k.verified for k in registry.known_classes())
+    # Derived objects have no superclass.
+    assert registry.known_class(0x2032).name == "Derived Object"
+    assert registry.category_of(0x30) == "light" and registry.category_of(0x12345) is None
 
 
 def test_superclass_preference():
@@ -155,8 +162,7 @@ def test_registered_decoders_listing():
     assert {"controller.transform", "controller.position", "controller.rotation", "controller.scale",
             "controller.float"} <= kinds
     assert all(d.module.startswith("maxfile.objects.") for d in decoders)
-    assert not any(d.verified for d in decoders)
     # Every decoder's class IDs are known classes, so the feature matrix can name them.
     for d in decoders:
         for cid in d.class_ids:
-            assert registry.known_class(cid) is not None, cid
+            assert registry.known_class(cid, d.superclass_id) is not None, (cid, d.superclass_id)

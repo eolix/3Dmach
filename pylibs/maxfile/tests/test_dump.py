@@ -24,7 +24,7 @@ def max_path(tmp_path_factory):
     b = SceneBuilder()
     dll = b.dll((0x2037, "Test objects"), (0x2039, "test.dlo"))
     node = b.cls("Node", (1, 0), 1)
-    prs = b.cls("PRS", (0x2005, 0), 0x9008003)
+    prs = b.cls("PRS", (0x2005, 0), 0x9008)
     bez = b.cls("BezPos", (0x2008, 0), 0x900B)
     box = b.cls("Box", (0x10, 0), 0x10, dll)
     weird = b.cls("WeirdPlugin", (0xABCD, 0x1234), 0x10, dll)

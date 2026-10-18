@@ -5,8 +5,8 @@
 """
 Transform controller decoding tests.
 
-Class IDs and value chunks are the *documented, unverified* assumptions of ``docs/format/overview.md`` §4.1;
-the fixtures (``synth_max``) encode them, so these tests check our decoders against the documentation only.
+Class IDs, superclasses and value chunks as verified on the local corpus (``docs/format/overview.md`` §4.1). The
+fixtures are synthetic (``synth_max``), built to those layouts.
 """
 
 import math
@@ -17,22 +17,23 @@ import maxfile
 from maxfile import transform
 from synth_max import NULL, SceneBuilder, cont, f32, leaf, max_quat, refs_ordered
 
-ID = {
-    "prs": (0x2005, 0),
-    "bezier_pos": (0x2008, 0),
-    "tcb_pos": (0x442312, 0),
-    "pos_xyz": (0x118F7E02, 0xFFEE238A),
-    "pos_list": (0x4B4B1002, 0),
-    "euler": (0x2012, 0),
-    "tcb_rot": (0x442313, 0),
-    "rot_wire": (0x31381913, 0x3A904167),
-    "rot_list": (0x4B4B1003, 0),
-    "scale_xyz": (0x118F7C01, 0xFEEE238B),
-    "bezier_scale": (0x2010, 0),
-    "tcb_zoom": (0x442315, 0),
-    "bezier_float": (0x2007, 0),
-    "float_wire": (0x498702E7, 0x71F11549),
-    "biped": (0x9154, 0),
+ID = {   # key: (class ID, superclass)
+    "prs": ((0x2005, 0), 0x9008),
+    "bezier_pos": ((0x2008, 0), 0x900B),
+    "tcb_pos": ((0x442312, 0), 0x900B),
+    "pos_xyz": ((0x118F7E02, 0xFFEE238A), 0x900B),
+    "pos_list": ((0x4B4B1002, 0), 0x900B),
+    "euler": ((0x2012, 0), 0x900C),
+    "tcb_rot": ((0x442313, 0), 0x900C),
+    "rot_wire": ((0x31381913, 0x3A904167), 0x900C),
+    "rot_list": ((0x4B4B1003, 0), 0x900C),
+    "scale_xyz": ((0x118F7C01, 0xFEEE238B), 0x900D),
+    "bezier_scale": ((0x2010, 0), 0x900D),
+    "tcb_scale": ((0x442315, 0), 0x900D),
+    "bezier_float": ((0x2007, 0), 0x9003),
+    "float_wire": ((0x498702E7, 0x71F11549), 0x9003),
+    "bezier_point3": ((0x200A, 0), 0x9005),
+    "biped": ((0x9154, 0), 0x9008),
 }
 
 
@@ -40,13 +41,15 @@ class Builder(SceneBuilder):
     def __init__(self):
         super().__init__()
         self.node_class = self.cls("Node", (1, 0), 1)
-        self.c = {key: self.cls(key, cid, 0x9000) for key, cid in ID.items()}
+        self.c = {key: self.cls(key, cid, sup) for key, (cid, sup) in ID.items()}
 
     def ctrl(self, key, *children):
         return self.obj(self.c[key], *children)
 
-    def float_ctrl(self, value):
-        return self.ctrl("bezier_float", cont(0x7127, leaf(0x2501, f32(value))))
+    def float_ctrl(self, value, holder=False):
+        if holder:  # The 0x7127 container form (some files).
+            return self.ctrl("bezier_float", cont(0x7127, leaf(0x2501, f32(value))))
+        return self.ctrl("bezier_float", leaf(0x2501, f32(value)))
 
     def scene_node(self, controller, name="N"):
         return self.node(self.node_class, name, refs=[controller])
@@ -64,7 +67,7 @@ def test_prs_with_key_controllers():
     b = Builder()
     pos = b.ctrl("bezier_pos", leaf(0x2503, f32(1, 2, 3)))
     rot = b.ctrl("tcb_rot", leaf(0x2504, max_quat(0.5, 0.5, 0.5, 0.5)))
-    scale = b.ctrl("bezier_scale", leaf(0x2501, f32(2, 3, 4)))
+    scale = b.ctrl("bezier_scale", leaf(0x2505, f32(2, 3, 4, 0, 0, 0, 1)))
     prs = b.ctrl("prs", refs_ordered(pos, rot, scale))
     n = b.scene_node(prs)
     with _open(b) as mf:
@@ -76,12 +79,12 @@ def test_prs_with_key_controllers():
 
 
 def test_quaternion_order_from_file():
-    # Unverified (overview.md §4.1): file order q0..q3 maps to (w, x, y, z) = (q3, q2, q1, q0).
+    # Verified (overview.md §4.1): files store x, y, z, w of the inverse rotation.
     b = Builder()
     rot = b.ctrl("tcb_rot", leaf(0x2504, f32(0.1, 0.2, 0.3, 0.4)))
     n = b.scene_node(b.ctrl("prs", refs_ordered(NULL, rot)))
     with _open(b) as mf:
-        assert _approx(mf.scene.node(n).transform.rotation, (0.4, 0.3, 0.2, 0.1))
+        assert _approx(mf.scene.node(n).transform.rotation, (0.4, -0.1, -0.2, -0.3))
 
 
 def test_xyz_controllers_and_euler():
@@ -102,14 +105,25 @@ def test_xyz_controllers_and_euler():
         assert _approx([m[0][2], m[1][2], m[2][2]], [0, 0, 5])
 
 
-def test_tcb_position_tcb_zoom_uniform():
+def test_tcb_position_tcb_scale():
     b = Builder()
     pos = b.ctrl("tcb_pos", leaf(0x2503, f32(-1, 0, 7)))
-    scale = b.ctrl("tcb_zoom", leaf(0x2505, f32(3)))
+    scale = b.ctrl("tcb_scale", leaf(0x2505, f32(3, 3, 3, 0, 0, 0, 1)))
     n = b.scene_node(b.ctrl("prs", refs_ordered(pos, NULL, scale)))
     with _open(b) as mf:
         t = mf.scene.node(n).transform
         assert t.position == (-1.0, 0.0, 7.0) and t.rotation is None and t.scale == (3.0, 3.0, 3.0)
+
+
+def test_float_and_point3_values():
+    b = Builder()
+    plain = b.float_ctrl(1.5)
+    held = b.float_ctrl(2.5, holder=True)
+    colour = b.ctrl("bezier_point3", leaf(0x2501, f32(0.25, 0.5, 1)))
+    with _open(b) as mf:
+        assert mf.scene.decode(mf.objects[plain]) == 1.5
+        assert mf.scene.decode(mf.objects[held]) == 2.5
+        assert mf.scene.decode(mf.objects[colour]) == (0.25, 0.5, 1.0)
 
 
 def test_list_and_wire_use_first_reference():
@@ -131,12 +145,12 @@ def test_unknown_controller_is_reported():
     b = Builder()
     biped = b.ctrl("biped")
     n = b.scene_node(biped)
-    unknown_class = b.cls("MysteryCtrl", (0xDEAD, 0xBEEF), 0x9000)
+    unknown_class = b.cls("MysteryCtrl", (0xDEAD, 0xBEEF), 0x9008)
     m = b.scene_node(b.obj(unknown_class), "M")
     with _open(b) as mf:
         assert mf.scene.node(n).transform is None and mf.scene.node(m).transform is None
-        assert mf.scene.undecoded == {"Biped slave control": 1, "MysteryCtrl": 1}
-        assert any("transform controller Biped slave control not decoded" in w for w in mf.warnings)
+        assert mf.scene.undecoded == {"BipSlave Control": 1, "MysteryCtrl": 1}
+        assert any("transform controller BipSlave Control not decoded" in w for w in mf.warnings)
 
 
 def test_prs_with_undecodable_component():
@@ -170,12 +184,12 @@ def test_bad_value_chunks(children, match):
         assert any(match in w for w in mf.warnings)
 
 
-def test_bezier_float_needs_holder():
+def test_bezier_float_without_value():
     b = Builder()
-    f = b.ctrl("bezier_float", leaf(0x2501, f32(1)))
+    f = b.ctrl("bezier_float", leaf(0x2500, f32(0, 0)))
     with _open(b) as mf:
         assert mf.scene.decode(mf.objects[f]) is None
-        assert any("no 0x7127 chunk" in w for w in mf.warnings)
+        assert any("no float value chunk" in w for w in mf.warnings)
 
 
 def test_xyz_missing_component():
@@ -232,4 +246,4 @@ def test_transform_helpers():
     q = transform.euler_xyz_to_quat(math.pi / 2, 0, 0)
     assert _approx(q, (math.cos(math.pi / 4), math.sin(math.pi / 4), 0, 0))
     assert transform.matmul(transform.IDENTITY, transform.IDENTITY) == transform.IDENTITY
-    assert transform.quat_from_max((1, 2, 3, 4)) == (4, 3, 2, 1)
+    assert transform.quat_from_max((1, 2, 3, 4)) == (4, -1, -2, -3)
