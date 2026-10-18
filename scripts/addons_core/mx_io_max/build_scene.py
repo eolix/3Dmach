@@ -62,6 +62,11 @@ def _matrix(rows):
     return Matrix([list(row) for row in rows])
 
 
+# Editable Mesh triangles are merged into Max's polygons (hidden edges dissolved) for meshes up to this many
+# faces, and for any mesh under a subdivision modifier.
+MERGE_TRIANGLES_UP_TO = 20000
+
+
 def _is_identity(matrix, eps=1e-5):
     return all(abs(matrix[i][j] - (1.0 if i == j else 0.0)) < eps for i in range(4) for j in range(4))
 
@@ -206,7 +211,9 @@ class SceneBuilder:
 
         obj = None
         if kind in {"MeshData", "PrimitiveData"}:
-            obj = self._new_object(name, self._mesh_for(target.index, decoded, node, name))
+            from .modifiers.convert import SUBDIVISION, converter_key
+            subdivided = any(converter_key(m.class_label()) in SUBDIVISION for m, _r, _d in stack or ())
+            obj = self._new_object(name, self._mesh_for(target.index, decoded, node, name, subdivided))
             self.report.add_imported("objects")
         elif kind == "ShapeData":
             obj, stack = self._build_shape(scene, node, name, target, decoded, stack or [])
@@ -384,9 +391,12 @@ class SceneBuilder:
 
     # Geometry.
 
-    def _mesh_for(self, geometry_index, decoded, node, name):
+    def _mesh_for(self, geometry_index, decoded, node, name, merge_triangles=False):
         offset = _matrix(node.object_offset.matrix())
-        key = (geometry_index, tuple(round(v, 6) for row in offset for v in row))
+        # Only big triangle meshes are built differently under a subdivision modifier (see _mesh_from_data).
+        merge_triangles = merge_triangles and bool(getattr(decoded, "edge_visibility", None)) and \
+            len(decoded.faces) > MERGE_TRIANGLES_UP_TO
+        key = (geometry_index, tuple(round(v, 6) for row in offset for v in row), merge_triangles)
         mesh = self._mesh_cache.get(key)
         if mesh is not None:
             self.report.add_imported("instances")
@@ -397,7 +407,7 @@ class SceneBuilder:
             # primitives whose pivot is at their object origin stay live (90 % of the corpus).
             mesh, live = self._primitive_mesh(decoded, name, live=_is_identity(offset))
         else:
-            mesh = self._mesh_from_data(decoded, name)
+            mesh = self._mesh_from_data(decoded, name, merge_triangles)
         if not live:
             # Object offset: bake it into the geometry so the Blender origin sits at the Max pivot.
             mesh.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
@@ -405,32 +415,76 @@ class SceneBuilder:
         self.report.add_imported("meshes")
         return mesh
 
-    def _mesh_from_data(self, data, name):
-        from . import mesh_build, smoothing
+    def _mesh_from_data(self, data, name, merge_triangles=False):
+        from . import mesh_build
         from .materials.nodes import uv_layer_name
-        faces = [tuple(face) for face in data.faces]
-        groups = list(data.smoothing_groups) if data.smoothing_groups else [1] * len(faces)
-        sharp_edges, sharp_faces = smoothing.sharp_from_smoothing_groups(faces, groups)
+        faces = data.faces
+        groups = data.smoothing_groups if data.smoothing_groups else [1] * len(faces)
+        sizes = None
         uv_layers = []
         for channel, mapping in sorted(data.map_channels.items()):
             if channel < 1:
                 continue    # Vertex colour / illumination / alpha channels: not imported yet.
-            if len(mapping.faces) != len(faces) or any(len(a) != len(b) for a, b in zip(mapping.faces, faces)):
-                self.report.warn("{:s}: map channel {:d} doesn't match the geometry, skipped".format(name, channel))
+            if sizes is None:
+                sizes = mesh_build._face_arrays(faces)[0]
+            uvs = mesh_build.corner_uvs(mapping.vertices, mapping.faces, sizes)
+            if uvs is None:
+                self.note(name, "map channel {:d} doesn't match the geometry, skipped".format(channel))
                 continue
-            verts = mapping.vertices
-            uvs = [tuple(verts[i][:2]) for face in mapping.faces for i in face]
             uv_layers.append((uv_layer_name(channel), uvs))
         mesh = mesh_build.build_mesh(
-            name, data.positions, faces, uv_layers=uv_layers, sharp_edges=sharp_edges, sharp_faces=sharp_faces)
-        mesh["mx_material_ids"] = list(data.material_ids) if data.material_ids else [1] * len(faces)
+            name, data.positions, faces, uv_layers=uv_layers, smoothing_groups=groups,
+            material_ids=data.material_ids if data.material_ids else None)
+        visibility = getattr(data, "edge_visibility", None)
+        if visibility and (merge_triangles or len(faces) <= MERGE_TRIANGLES_UP_TO):
+            if self._merge_hidden_edges(mesh, faces, visibility):
+                self.report.add_imported("triangle meshes shown as polygons")
         return mesh
+
+    @staticmethod
+    def _merge_hidden_edges(mesh, faces, visibility):
+        """
+        Editable Mesh: dissolve the hidden edges (the diagonals of the polygons Max shows), so the mesh has
+        Max's polygons (MeshSmooth and TurboSmooth subdivide those). Returns True when edges were dissolved.
+        """
+        import bmesh
+        import numpy as np
+        tris = np.asarray(faces, dtype=np.int64)
+        if tris.ndim != 2 or tris.shape[1] != 3:
+            return False
+        vis = np.asarray(visibility, dtype=np.int64)
+        n = len(mesh.vertices)
+        hidden = []
+        for k in range(3):
+            a, b = tris[:, k], tris[:, (k + 1) % 3]
+            mask = (vis & (1 << k)) == 0
+            hidden.append((np.minimum(a, b) * n + np.maximum(a, b))[mask])
+        hidden = np.concatenate(hidden)
+        if not len(hidden):
+            return False
+        edge_verts = np.zeros(len(mesh.edges) * 2, dtype=np.int32)
+        mesh.edges.foreach_get("vertices", edge_verts)
+        edge_verts = edge_verts.reshape(-1, 2).astype(np.int64)
+        keys = np.minimum(edge_verts[:, 0], edge_verts[:, 1]) * n + np.maximum(edge_verts[:, 0], edge_verts[:, 1])
+        index = np.nonzero(np.isin(keys, hidden))[0]
+        if not len(index):
+            return False
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bm.edges.ensure_lookup_table()
+        edges = [bm.edges[i] for i in index.tolist() if len(bm.edges[i].link_faces) == 2]
+        if edges:
+            bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=False, use_face_split=False)
+            bm.to_mesh(mesh)
+        bm.free()
+        return bool(edges)
 
     def _primitive_mesh(self, data, name, live=True):
         """
         ``(mesh, is_live)`` for a primitive: a live primitive (sizes in metres) when the Max-Style Primitives
         add-on is enabled and ``live`` allows it, else a plain mesh in scene units (the caller scales it).
         """
+        from . import mesh_build
         from .primitives import convert as primitive_convert
         if data.cached_mesh is not None:
             # Max's own cached mesh is exact (no corpus file has one, see docs/format/overview.md §6.4).
@@ -457,7 +511,9 @@ class SceneBuilder:
                 bpy.data.objects.remove(obj)
                 ids = array.array("i", [0]) * len(mesh.polygons)
                 mesh.polygons.foreach_get("material_index", ids)
-                mesh["mx_material_ids"] = [i + 1 for i in ids]
+                attribute = mesh.attributes.get(mesh_build.MATERIAL_ID_ATTRIBUTE) or mesh.attributes.new(
+                    mesh_build.MATERIAL_ID_ATTRIBUTE, 'INT', 'FACE')
+                attribute.data.foreach_set("value", array.array("i", (i + 1 for i in ids)))
                 self.report.add_imported("live primitives")
                 return mesh, True
             mesh = self._mesh_from_generated(geometry.generate(kind, **params), name)
@@ -469,17 +525,14 @@ class SceneBuilder:
 
     def _mesh_from_generated(self, data, name):
         """A plain mesh from ``mx_primitives.geometry.MeshData`` (scene units)."""
-        from . import mesh_build, smoothing
+        from . import mesh_build
         from .materials.nodes import uv_layer_name
-        faces = [tuple(face) for face in data.faces]
-        sharp_edges, sharp_faces = smoothing.sharp_from_smoothing_groups(faces, list(data.smoothing_groups))
         uv_layers = []
         if data.uvs is not None:
             uv_layers.append((uv_layer_name(1), [tuple(uv) for face in data.uvs for uv in face]))
-        mesh = mesh_build.build_mesh(name, data.vertices, faces, uv_layers=uv_layers, sharp_edges=sharp_edges,
-                                     sharp_faces=sharp_faces)
-        mesh["mx_material_ids"] = [i + 1 for i in data.material_ids]
-        return mesh
+        return mesh_build.build_mesh(name, data.vertices, data.faces, uv_layers=uv_layers,
+                                     smoothing_groups=data.smoothing_groups,
+                                     material_ids=[i + 1 for i in data.material_ids])
 
     def _build_stack(self, obj, scene, node, entries):
         """Add Max modifiers (``_stack_entries``, bottom of the stack first) as Blender modifiers."""
@@ -653,15 +706,14 @@ class SceneBuilder:
 
     def _extrude(self, name, splines, raw, steps, node):
         from mathutils.geometry import tessellate_polygon
-        from . import mesh_build, shapes, smoothing
+        from . import mesh_build, shapes
         p = {key: raw[pid] for pid, key in shapes.EXTRUDE_PARAMS.items() if pid in raw}
         positions, faces, mat_ids, groups, sharp = shapes.extrude_mesh(
             splines, float(p.get("amount", 0.0)), int(p.get("segments", 1) or 1),
             bool(p.get("cap_start", 1)), bool(p.get("cap_end", 1)), steps, tessellate=tessellate_polygon)
-        sharp_edges, sharp_faces = smoothing.sharp_from_smoothing_groups(faces, groups)
-        sharp_edges |= sharp
-        mesh = mesh_build.build_mesh(name, positions, faces, sharp_edges=sharp_edges, sharp_faces=sharp_faces)
-        mesh["mx_material_ids"] = mat_ids if p.get("generate_material_ids", 1) else [1] * len(faces)
+        mesh = mesh_build.build_mesh(
+            name, positions, faces, sharp_edges=sharp, smoothing_groups=groups,
+            material_ids=mat_ids if p.get("generate_material_ids", 1) else [1] * len(faces))
         offset = _matrix(node.object_offset.matrix())
         mesh.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
         return self._new_object(name, mesh)
@@ -805,13 +857,17 @@ class SceneBuilder:
         return {pid: param.value for pid, param in block.params.items()}
 
     def _assign_materials(self, obj, scene, material_object, decoded):
-        from . import material_ids
+        import numpy as np
+        from . import material_ids, mesh_build
         sub_ids, mats = self._blender_materials(scene, material_object)
         mesh = obj.data
-        face_ids = list(mesh.get("mx_material_ids", [1] * len(mesh.polygons)))
-        if len(face_ids) != len(mesh.polygons):
-            face_ids = [1] * len(mesh.polygons)
-        slot_of_sub, face_slots = material_ids.slots_for_faces(face_ids, sub_ids)
+        face_ids = mesh_build.face_material_ids(mesh)
+        if face_ids is None:
+            face_ids = np.ones(len(mesh.polygons), dtype=np.int32)
+        # Slots per distinct ID (vectorised over the faces).
+        unique, inverse = np.unique(face_ids, return_inverse=True)
+        slot_of_sub, unique_slots = material_ids.slots_for_faces(unique.tolist(), sub_ids)
+        face_slots = np.asarray(unique_slots, dtype=np.int32)[inverse] if len(unique) else face_ids
         # Slots go on the object (Max assigns materials per node, instances can differ).
         slots = [None] * (max((s for s in slot_of_sub if s is not None), default=-1) + 1)
         for position, slot in enumerate(slot_of_sub):
@@ -824,7 +880,7 @@ class SceneBuilder:
             obj.material_slots[index].link = 'OBJECT'
             obj.material_slots[index].material = mat
         if len(slots) > 1:
-            mesh.polygons.foreach_set("material_index", face_slots)
+            mesh.polygons.foreach_set("material_index", np.ascontiguousarray(face_slots, dtype=np.int32))
 
 
 def import_file(operator, context, filepath, settings=None):
@@ -848,12 +904,14 @@ def import_file(operator, context, filepath, settings=None):
         operator.report({'ERROR'}, "Cannot read {!r}: {:s}".format(filepath, ex.strerror or str(ex)))
         return {'CANCELLED'}
 
-    for obj in context.view_layer.objects:
-        obj.select_set(False)
+    view_layer_objects = set(context.view_layer.objects)    # Name lookups in the collection are linear.
+    for obj in view_layer_objects:
+        if obj.select_get():
+            obj.select_set(False)
     for obj in objects:
-        if obj.name in context.view_layer.objects:
+        if obj in view_layer_objects and not obj.hide_get():
             obj.select_set(True)
-    if objects and objects[0].name in context.view_layer.objects:
+    if objects and objects[0] in view_layer_objects:
         context.view_layer.objects.active = objects[0]
 
     store_in_text(report)

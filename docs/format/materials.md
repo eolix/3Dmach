@@ -17,23 +17,37 @@ renderer-neutral `model.Surface` → `nodes.py` builds a Principled BSDF node tr
 | **CoronaPhysicalMtl** | base colour × level; roughness (or glossiness mode); metalness mode; IOR; refraction amount; thin mode; clearcoat; sheen; SSS amount; self-illumination; opacity; bump | |
 | **CoronaMtl** (legacy) | diffuse × level; reflection level → specular level; reflection glossiness → roughness; Fresnel IOR; refraction level → transmission; self-illumination; opacity; bump | |
 | **Arnold Standard Surface** | near one-to-one: Principled v2 follows the same model | |
-| **Multi/Sub-Object** | one material slot per sub-material actually used; faces assigned by material ID | IDs not in the list wrap by `(id − 1) mod count` (to verify). |
-| **Blend** | Mix Shader of the two materials, mask or amount as factor | Nested blends are simplified and reported. |
+| **Multi/Sub-Object** | one material slot per sub-material actually used; faces assigned by material ID (`maxfile` gives the IDs 1-based: they are stored 0-based) | IDs not in the list wrap by `(id − 1) mod count` (to verify). A Multi/Sub inside another material uses its first sub-material (reported). |
+| **Blend** | Mix Shader of its two component materials, the mask map (when enabled) or the mix amount as factor | Nested blends are simplified and reported. |
+| **Double Sided**, **Top/Bottom**, **Shellac**, other materials made of materials | their first component (front, top, base) | Reported. |
 | Anything else | flat placeholder named after the class, with its diffuse colour if readable (magenta otherwise) | Listed in the import report. |
 
 ## Maps
 
 | Max map | Blender nodes |
 |---|---|
-| Bitmap | Image Texture + UV Map (channel) + Mapping (tiling, offset, rotation); colour space sRGB for colour inputs, Non-Color for scalars and normals |
-| Checker | Checker Texture (scale 2: Max has 2×2 squares per tile) |
-| Noise | Noise Texture mixing colour 1 and 2; size → scale; fractal/turbulence → detail |
-| Gradient | Gradient Texture + Color Ramp (Max's 3 colours, middle position) |
-| Mix | Mix (colour) with amount or mask |
-| Falloff | Layer Weight (perpendicular/parallel, towards/away) or Fresnel (IOR) driving a mix |
-| Color Correction | Hue/Saturation + Bright/Contrast (+ Gamma) |
-| Normal Bump / VRayNormalMap / CoronaNormal | Normal Map (optional green flip) + Bump for the extra bump input |
+| Bitmap | Image Texture + UV Map (channel) + Mapping (tiling, offset, W angle about the map centre, like Max); colour space sRGB for colour inputs, Non-Color for scalars and normals. The stored path is resolved first, then the path Max last resolved the asset to (asset metadata) |
+| Checker | Checker Texture (scale 2: Max has 2×2 squares per tile), colours or maps 1 / 2, tiling |
+| Noise | Noise Texture in object coordinates mixing colour (or map) 1 and 2; size (scene units) → scale per metre; fractal / turbulence → detail |
+| Gradient | Gradient Texture + Color Ramp (Max's 3 colours, colour 2 position, linear / radial) |
+| Mix | Mix (colour) of colour or map 1 and 2, mask map or mix amount |
+| Mask | Mix from black to the map with the mask as factor |
+| Falloff | Layer Weight (perpendicular/parallel, towards/away) or Fresnel (IOR) driving a mix of colour or map 1 and 2 |
+| Color Correction | Hue/Saturation + Bright/Contrast (+ Gamma) of its map or colour |
+| Normal Bump / VRayNormalMap / CoronaNormal | Normal Map (strength, optional green flip) + Bump for the extra bump input |
 | Bump (material bump slot) | Bump node; strength = amount |
+| Output, RGB Tint, RGB Multiply, Composite, Bump 2D, Vertex Color | their first input map (reported as approximated) |
+| Anything else | not converted: the parameter keeps its constant value (reported) |
+
+`maxfile` names the parameters of Bitmap, Checker, Noise, Mix and Normal Bump. Falloff, Gradient, Mask and Color
+Correction are read by the importer from their ParamBlock2 by ID (`materials/maps.py`); evidence from the corpus:
+
+| Map (block ref) | IDs | Evidence |
+|---|---|---|
+| Falloff (0; 82 maps) | 0 colour 1, 1 / 5 map amounts, 2 map 1, 3 map 1 on, 4 colour 2, 6 map 2, 7 map 2 on, 8 type (0 towards/away, 1 perpendicular/parallel, 2 Fresnel, 3 shadow/light, 4 distance blend), 9 direction, 12 IOR | colour 1 black on 59 and colour 2 white on 56 (Max's defaults); type 1 on 53 (the default); IOR 1.6 on all (the default) |
+| Gradient (1; 83) | 0-2 colours 1-3, 3-5 maps, 6-8 map on, 9 colour 2 position, 10 type (0 linear, 1 radial) | black / 0.5 grey / white defaults; position 0.5 on 50 |
+| Mask (2; 94) | 0 map, 1 mask, 2 / 3 on, 4 invert | the referenced classes; invert off on all |
+| Color Correction (0; 119) | 0 colour, 1 map (71 Bitmaps), 7 hue shift, 8 saturation, 12 brightness, 13 contrast | Guess for 7-13: UI order and value ranges (saturation -100..100) |
 
 A map "amount" below 100 % mixes the map with the parameter's constant value.
 

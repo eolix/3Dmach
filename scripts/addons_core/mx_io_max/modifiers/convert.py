@@ -47,6 +47,9 @@ NOTES = {
     "UVW_Map": "UVW Map coordinates are generated once on import (not live)",
 }
 
+# Max subdivision modifiers (they subdivide Max's polygons, so triangle meshes are merged under them).
+SUBDIVISION = {"TurboSmooth", "MeshSmooth", "OpenSubdiv"}
+
 # Blender modifier types that keep the mesh's vertex / face count and order.
 DEFORM_TYPES = {'SIMPLE_DEFORM', 'DISPLACE', 'SMOOTH', 'LAPLACIANSMOOTH', 'CAST', 'WAVE', 'UV_PROJECT'}
 
