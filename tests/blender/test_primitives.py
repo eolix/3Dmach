@@ -226,7 +226,14 @@ class LiveParameterTest(PrimitiveTestCase):
             "GEOSPHERE": {"base_type": 'OCTA'}, "CYLINDER": {"cap_segments": 3},
             "TUBE": {"sides": 7}, "CONE": {"radius2": 0.2}, "TORUS": {"smooth_mode": 'SIDES', "segments": 9},
             "PYRAMID": {"height_segments": 4}, "PLANE": {"width_segments": 7}, "TEST_SHAPE": {"part_lid": False},
+            "CHAMFERBOX": {"fillet_segments": 5}, "CHAMFERCYL": {"cap_segments": 3},
+            "CAPSULE": {"height_type": 'CENTERS', "sides": 9}, "OILTANK": {"blend": 0.05},
+            "SPINDLE": {"cap_segments": 4}, "GENGON": {"fillet": 0.1, "fillet_segments": 2},
+            "PRISM": {"side3_length": 1.5}, "L_EXT": {"side_segments": 3}, "C_EXT": {"back_length": 2.0},
+            "TORUS_KNOT": {"base_curve": 'CIRCLE', "warp_count": 4.0, "warp_height": 0.2},
+            "HEDRA": {"family": 'DODEC_ICOS', "family_p": 0.3},
         }
+        self.assertEqual(set(changes), set(self.geometry.KIND_IDS))
         for kind, params in changes.items():
             with self.subTest(kind=kind):
                 obj = self.add(kind)
@@ -280,6 +287,75 @@ class LiveParameterTest(PrimitiveTestCase):
         bpy.ops.object.mode_set(mode='OBJECT')
         self.assertMeshMatches(obj.data, "BOX", height_segments=3)
         self.assertEqual(len(obj.data.uv_layers), 1)
+
+
+class ExtendedPrimitiveTest(PrimitiveTestCase):
+    EXTENDED = ("CHAMFERBOX", "CHAMFERCYL", "CAPSULE", "OILTANK", "SPINDLE", "GENGON", "PRISM", "L_EXT", "C_EXT",
+                "TORUS_KNOT", "HEDRA")
+
+    def test_kind_enum_numbers_are_stable(self):
+        # Stored numbers: the standard kinds keep 1-10, the extended ones are appended.
+        items = bpy.types.Mesh.bl_rna.properties["mx_primitive"].fixed_type.properties["kind"].enum_items
+        self.assertEqual(items["BOX"].value, 1)
+        self.assertEqual(items["TEST_SHAPE"].value, 10)
+        self.assertEqual([items[kind].value for kind in self.EXTENDED], list(range(11, 22)))
+
+    def test_create_and_names(self):
+        names = {"TORUS_KNOT": "TorusKnot001", "L_EXT": "L-Ext001", "CHAMFERBOX": "ChamferBox001"}
+        for kind in self.EXTENDED:
+            with self.subTest(kind=kind):
+                obj = self.add(kind)
+                self.assertEqual(obj.data.mx_primitive.kind, kind)
+                self.assertMeshMatches(obj.data, kind)
+                if kind in names:
+                    self.assertEqual(obj.name, names[kind])
+                self.assertGreater(len(obj.data.polygons), 3)
+
+    def test_chamfer_box_attributes(self):
+        obj = self.add("CHAMFERBOX", width=2.0, length=3.0, height=1.0, fillet=0.2)
+        self.assertAlmostEqual(obj.dimensions.x, 2.0, places=5)
+        self.assertAlmostEqual(obj.dimensions.y, 3.0, places=5)
+        self.assertAlmostEqual(obj.dimensions.z, 1.0, places=5)
+        self.assertEqual(sorted({p.material_index for p in obj.data.polygons}), [0, 1, 2, 3, 4, 5, 6])
+        self.assertTrue(all(p.use_smooth for p in obj.data.polygons))
+        obj.data.mx_primitive.smooth = False
+        self.assertFalse(any(p.use_smooth for p in obj.data.polygons))
+
+    def test_clamped_fillet_written_back(self):
+        obj = self.add("CHAMFERCYL")
+        obj.data.mx_primitive.fillet_segments = 0
+        self.assertEqual(obj.data.mx_primitive.fillet_segments, 1)
+        obj.data.mx_primitive.family_p = 0.5   # Not a ChamferCyl parameter: no effect on the mesh.
+        self.assertMeshMatches(obj.data, "CHAMFERCYL")
+
+    def test_capsule_from_importer_parameters(self):
+        # The names the .max decoder produces for a Capsule (corpus: Leaves_many cars.max).
+        params = {"radius": 4.7323, "height": 118.7565, "height_type": "OVERALL", "sides": 8, "height_segments": 1,
+                  "smooth": True, "slice_on": False, "slice_from": 0.0, "slice_to": 0.0, "generate_uvs": True}
+        obj = self.mx.create_primitive_object("Capsule01", "CAPSULE", params)
+        self.assertEqual(len(obj.data.vertices), 66)
+        self.assertAlmostEqual(obj.dimensions.z, 118.7565, places=3)
+
+    def test_interactive_session_drives_extended(self):
+        from mx_primitives import creation
+        session = creation.CreationSession("CHAMFERBOX", creation.GROUND_PLANE)
+        session.press((0.0, 0.0, 0.0))
+        session.update((2.0, 1.0, 10.0), (0.0, 0.0, -1.0))
+        session.advance()
+        session.update((2.0, -10.0, 1.0), (0.0, 1.0, 0.0))
+        session.advance()
+        session.update((2.0, -10.0, 0.8), (0.0, 1.0, 0.0))
+        self.assertEqual(session.advance(), "FINISHED")
+        obj = self.mx.create_primitive_object("ChamferBox001", "CHAMFERBOX", session.params)
+        self.assertAlmostEqual(obj.data.mx_primitive.fillet, 0.2, places=5)
+        self.assertAlmostEqual(obj.dimensions.z, 1.0, places=5)
+
+    def test_convert_extended(self):
+        obj = self.add("HEDRA", family='CUBE_OCTA')
+        count = len(obj.data.vertices)
+        self.assertEqual(bpy.ops.object.mx_convert_to_editable_poly(), {'FINISHED'})
+        self.assertFalse(self.mx.is_live_primitive(obj))
+        self.assertEqual(len(obj.data.vertices), count)
 
 
 class ConvertTest(PrimitiveTestCase):

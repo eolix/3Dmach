@@ -38,9 +38,10 @@ Parameters whose meaning still rests only on the UI order are listed in :attr:`P
 
 **Names.** ``params`` uses the names of the live-primitive builder (``mx_primitives.geometry.PARAMETERS``:
 ``length_segments``, ``cap_segments``, ``generate_uvs``, ``hemisphere_mode`` = ``"CHOP"`` / ``"SQUASH"``, ...)
-and holds only names that builder accepts for its kinds (BOX, SPHERE, GEOSPHERE, CYLINDER, TUBE, CONE, TORUS,
-PLANE), because it rejects unknown names. Everything else goes to :attr:`PrimitiveData.extra_params`. Sizes are
-in scene units, angles in radians (both parameter block kinds store radians: Tube slices of +-1.0472 in old blocks).
+and holds only names that builder accepts for its kinds (:data:`BUILDER_KINDS`: the standard primitives but Teapot,
+plus ChamferBox, ChamferCyl, Capsule and Torus Knot), because it rejects unknown names. Everything else goes to
+:attr:`PrimitiveData.extra_params`. Sizes are in scene units, angles in radians (both parameter block kinds store
+radians: Tube slices of +-1.0472 in old blocks).
 """
 
 __all__ = (
@@ -57,11 +58,14 @@ from ..registry import decoder
 from .geometry import CHUNK_MESH, MeshData, read_tri_mesh
 
 # Builder kinds: their names must be accepted by mx_primitives.geometry.normalize_params.
-BUILDER_KINDS = {"BOX", "SPHERE", "GEOSPHERE", "CYLINDER", "TUBE", "CONE", "TORUS", "PLANE"}
+BUILDER_KINDS = {"BOX", "SPHERE", "GEOSPHERE", "CYLINDER", "TUBE", "CONE", "TORUS", "PLANE", "CHAMFERBOX", "CHAMFERCYL",
+                 "CAPSULE", "TORUS_KNOT"}
 
 # Enumerations stored as ints.
 # Guess: 0 = Chop (the Max default; 290 of 291 corpus spheres), 1 = Squash.
 HEMISPHERE_MODES = {0: "CHOP", 1: "SQUASH"}
+# Guess: 0 = Overall (all 7 corpus capsules, whose height is the overall height), 1 = Centers.
+CAPSULE_HEIGHT_TYPES = {0: "OVERALL", 1: "CENTERS"}
 # Guess: UI order; 2 = Icosa is the Max default and the value of all 88 corpus GeoSpheres.
 GEOSPHERE_BASES = {0: "TETRA", 1: "OCTA", 2: "ICOSA"}
 # Guess: 2 is the value of all 18 corpus tori and Max's default is "All"; the other values are unknown.
@@ -201,7 +205,7 @@ PRIMITIVE_PARAMS = {
     "CAPSULE": [
         (0, "radius", F, V, False),
         (1, "height", F, V, False),             # Overall height (caps included) when height_type is 0: 7 of 7.
-        (2, "height_type", I, G, False),        # Guess: 0 = overall, 1 = centres (0 on all 7).
+        (2, "height_type", CAPSULE_HEIGHT_TYPES, G, False),  # Guess: 0 = overall, 1 = centres (0 on all 7).
         (3, "sides", I, G, False),
         (4, "height_segments", I, G, False),
         (5, "smooth", B, G, False),

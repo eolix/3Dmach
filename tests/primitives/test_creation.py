@@ -217,3 +217,80 @@ def test_every_kind_completes(kind):
     assert result == "FINISHED"
     # The parameters are valid input for the geometry.
     geometry.generate(kind, **session.params)
+
+
+def test_chamfer_box_session_fillet_step():
+    session = creation.CreationSession("CHAMFERBOX", creation.GROUND_PLANE)
+    session.press((0.0, 0.0, 0.0))
+    session.update(*down_ray(2.0, 3.0))
+    assert session.params["width"] == pytest.approx(2.0) and session.params["length"] == pytest.approx(3.0)
+    assert session.advance() == "CONTINUE"
+    session.update((2.0, -10.0, 1.5), (0.0, 1.0, 0.0))
+    assert session.params["height"] == pytest.approx(1.5)
+    assert session.advance() == "CONTINUE"
+    assert session.step_name == "FILLET"
+    # The fillet starts from zero and follows the distance moved from where the height was clicked.
+    assert session.params["fillet"] == 0.0
+    session.update((2.0, -10.0, 1.2), (0.0, 1.0, 0.0))
+    assert session.params["fillet"] == pytest.approx(0.3)
+    session.update((2.0, -10.0, 1.9), (0.0, 1.0, 0.0))
+    assert session.params["fillet"] == pytest.approx(0.4)
+    assert session.params["height"] == pytest.approx(1.5)
+    assert session.advance() == "FINISHED"
+
+
+def test_offset_step_in_top_view_uses_screen_movement():
+    session = creation.CreationSession("OILTANK", creation.GROUND_PLANE)
+    session.press((0.0, 0.0, 0.0))
+    session.update(*down_ray(1.0, 0.0))
+    session.advance()
+    session.update(*down_ray(1.0, 0.0), fallback_height=3.0)
+    session.advance()
+    assert session.step_name == "CAP_HEIGHT"
+    session.update(*down_ray(1.0, 0.0), fallback_height=-0.25)
+    assert session.params["cap_height"] == pytest.approx(0.25)
+
+
+def test_l_and_c_ext_sessions():
+    for kind, widths in (("L_EXT", ("side_width", "front_width")),
+                         ("C_EXT", ("back_width", "side_width", "front_width"))):
+        session = creation.CreationSession(kind, creation.GROUND_PLANE)
+        session.press((0.0, 0.0, 0.0))
+        session.update(*down_ray(4.0, 2.0))
+        assert session.params["front_length"] == pytest.approx(4.0)
+        assert session.params["side_length"] == pytest.approx(2.0)
+        if kind == "C_EXT":
+            assert session.params["back_length"] == pytest.approx(4.0)
+        assert close(session.location, (2.0, 1.0, 0.0))
+        session.advance()
+        session.update((4.0, -10.0, 1.0), (0.0, 1.0, 0.0))
+        session.advance()
+        session.update((4.0, -10.0, 1.5), (0.0, 1.0, 0.0))
+        for name in widths:
+            assert session.params[name] == pytest.approx(0.5)
+        assert session.advance() == "FINISHED"
+
+
+def test_prism_session_isosceles_from_corner():
+    session = creation.CreationSession("PRISM", creation.GROUND_PLANE)
+    session.press((1.0, 1.0, 0.0))
+    session.update(*down_ray(-1.0, 3.0))
+    # Side 1 is the base along X, the apex at the far side of the rectangle; the pivot at its first corner.
+    assert session.params["side1_length"] == pytest.approx(2.0)
+    assert session.params["side2_length"] == pytest.approx(math.sqrt(5.0))
+    assert session.params["side3_length"] == pytest.approx(math.sqrt(5.0))
+    assert close(session.location, (-1.0, 1.0, 0.0))
+    data = geometry.generate("PRISM", **session.params)
+    assert max(v[1] for v in data.vertices) == pytest.approx(2.0)
+
+
+def test_torus_knot_session():
+    session = creation.CreationSession("TORUS_KNOT", creation.GROUND_PLANE)
+    session.press((0.0, 0.0, 0.0))
+    session.update(*down_ray(2.0, 0.0))
+    assert session.params["cross_section_radius"] == pytest.approx(0.4)
+    session.advance()
+    session.update(*down_ray(2.5, 0.0))
+    assert session.params["cross_section_radius"] == pytest.approx(0.5)
+    assert session.params["radius"] == pytest.approx(2.0)
+    assert session.advance() == "FINISHED"

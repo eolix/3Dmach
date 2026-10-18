@@ -355,6 +355,9 @@ class MESH_OT_mx_primitive_add(bpy.types.Operator):
         "RADIUS": "Drag from the centre to set the radius",
         "HEIGHT": "Move to set the height, click to finish",
         "RADIUS2": "Move to set radius 2, click to finish",
+        "FILLET": "Move up or down to set the fillet, click to finish",
+        "CAP_HEIGHT": "Move up or down to set the cap height, click to finish",
+        "WIDTH": "Move up or down to set the width, click to finish",
     }
 
     def _set_status(self, context):

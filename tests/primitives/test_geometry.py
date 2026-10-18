@@ -139,8 +139,11 @@ def test_no_blender_imports():
 
 
 def test_kinds():
-    assert set(geometry.KIND_IDS) == {
-        "BOX", "SPHERE", "GEOSPHERE", "CYLINDER", "TUBE", "CONE", "TORUS", "PYRAMID", "PLANE", "TEST_SHAPE"}
+    # The order numbers the kinds stored in .blend files: new kinds are only ever appended.
+    assert geometry.KIND_IDS == (
+        "BOX", "SPHERE", "GEOSPHERE", "CYLINDER", "TUBE", "CONE", "TORUS", "PYRAMID", "PLANE", "TEST_SHAPE",
+        "CHAMFERBOX", "CHAMFERCYL", "CAPSULE", "OILTANK", "SPINDLE", "GENGON", "PRISM", "L_EXT", "C_EXT",
+        "TORUS_KNOT", "HEDRA")
 
 
 def test_parameter_types_consistent():
@@ -157,7 +160,7 @@ def test_parameter_types_consistent():
 @pytest.mark.parametrize("kind", geometry.KIND_IDS)
 def test_defaults_generate(kind):
     data = geometry.generate(kind)
-    check_mesh(data, closed=kind != "PLANE", uv_range=GEO_UV_RANGE if kind == "GEOSPHERE" else (0.0, 1.0))
+    check_mesh(data, closed=kind != "PLANE", uv_range=GEO_UV_RANGE if kind in ("GEOSPHERE", "HEDRA") else (0.0, 1.0))
 
 
 def test_normalize_params():
@@ -217,6 +220,18 @@ def test_box_side_ids():
         assert (material, group) == geometry.BOX_SIDES[expected[key]]
 
 
+def test_box_matches_max_layout():
+    # A 1x1x1 Box converted to Editable Poly in Max (corpus): vertex order, faces with their first corner,
+    # material IDs (Max's 1-based 2, 1, 5, 4, 6, 3) and smoothing groups.
+    data = geometry.generate("BOX", width=2.0, length=4.0, height=1.0)
+    assert [tuple(round(c, 6) + 0.0 for c in v) for v in data.vertices] == [
+        (-1.0, -2.0, 0.0), (1.0, -2.0, 0.0), (-1.0, 2.0, 0.0), (1.0, 2.0, 0.0),
+        (-1.0, -2.0, 1.0), (1.0, -2.0, 1.0), (-1.0, 2.0, 1.0), (1.0, 2.0, 1.0)]
+    assert data.faces == [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (1, 3, 7, 5), (3, 2, 6, 7), (2, 0, 4, 6)]
+    assert data.material_ids == [1, 0, 4, 3, 5, 2]
+    assert data.smoothing_groups == [2, 4, 8, 16, 32, 64]
+
+
 def test_box_negative_height_faces_out():
     data = geometry.generate("BOX", height=-2.0)
     check_mesh(data)
@@ -252,6 +267,34 @@ def test_sphere_default_matches_max_counts():
     assert_bbox(data, [(-2.0, 2.0), (-2.0, 2.0), (-2.0, 2.0)], tol=1e-2)
     assert all(approx(math.sqrt(sum(c * c for c in v)), 2.0) for v in data.vertices)
     assert data.sharp_edges() == []
+
+
+def test_sphere_matches_max_layout():
+    # A 10-segment Sphere converted to Editable Poly in Max (corpus): the top pole, rings from the top down starting
+    # at +Y, the bottom pole; the top fan, bands of quads, the bottom fan, each face starting at the same corner.
+    data = geometry.generate("SPHERE", radius=1.0, segments=10)
+    assert len(data.vertices) == 42 and len(data.faces) == 50
+    assert approx(data.vertices[0][2], 1.0) and approx(data.vertices[41][2], -1.0)
+    first = data.vertices[1]
+    assert approx(first[0], 0.0) and first[1] > 0.0
+    assert math.degrees(math.atan2(data.vertices[2][1], data.vertices[2][0])) == pytest.approx(126.0)
+    assert data.faces[:2] == [(0, 1, 2), (0, 2, 3)] and data.faces[9] == (0, 10, 1)
+    assert data.faces[10] == (1, 11, 12, 2) and data.faces[19] == (10, 20, 11, 1)
+    assert data.faces[40] == (41, 32, 31) and data.faces[49] == (41, 31, 40)
+
+
+@pytest.mark.parametrize("kind,start", [("SPHERE", 90.0), ("TUBE", 90.0), ("TORUS", 90.0), ("CYLINDER", 0.0),
+                                        ("CONE", 0.0)])
+def test_ring_start_angle(kind, start):
+    # Max starts the rings of spheres, tubes and tori at +Y, those of cylinders and cones at +X (corpus bounding
+    # boxes of odd segment counts, see geometry.RING_START).
+    params = {"segments": 9} if kind in ("SPHERE", "TORUS") else {"sides": 9}
+    data = geometry.generate(kind, **params)
+    ring = [v for v in data.vertices if math.hypot(v[0], v[1]) > 1e-6][0]
+    assert math.degrees(math.atan2(ring[1], ring[0])) == pytest.approx(start)
+    # With an odd count the extent along the start axis is asymmetric.
+    lo, hi = bbox(data)[0 if start == 0.0 else 1]
+    assert hi > -lo + 1e-6
 
 
 @pytest.mark.parametrize("segments", [4, 5, 7, 12, 33])

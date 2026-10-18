@@ -28,6 +28,8 @@ import math
 #   RADIUS  -- drag from the centre outwards.
 #   HEIGHT  -- move the mouse up or down.
 #   RADIUS2 -- move the mouse towards or away from the centre.
+#   FILLET, CAP_HEIGHT, WIDTH -- move the mouse up or down: the distance moved (measured like the height) sets the
+#              fillet, the cap height or the leg widths.
 STEPS = {
     "BOX": ("RECT", "HEIGHT"),
     "PLANE": ("RECT",),
@@ -39,11 +41,37 @@ STEPS = {
     "CONE": ("RADIUS", "HEIGHT", "RADIUS2"),
     "TUBE": ("RADIUS", "RADIUS2", "HEIGHT"),
     "TORUS": ("RADIUS", "RADIUS2"),
+    "CHAMFERBOX": ("RECT", "HEIGHT", "FILLET"),
+    "CHAMFERCYL": ("RADIUS", "HEIGHT", "FILLET"),
+    "CAPSULE": ("RADIUS", "HEIGHT"),
+    "OILTANK": ("RADIUS", "HEIGHT", "CAP_HEIGHT"),
+    "SPINDLE": ("RADIUS", "HEIGHT", "CAP_HEIGHT"),
+    "GENGON": ("RADIUS", "HEIGHT", "FILLET"),
+    "PRISM": ("RECT", "HEIGHT"),
+    "L_EXT": ("RECT", "HEIGHT", "WIDTH"),
+    "C_EXT": ("RECT", "HEIGHT", "WIDTH"),
+    "TORUS_KNOT": ("RADIUS", "RADIUS2"),
+    "HEDRA": ("RADIUS",),
 }
 
-# Parameters set by the RECT step (along the plane's X, along its Y) and by the RADIUS step.
-_RECT_PARAMS = {"BOX": ("width", "length"), "PLANE": ("width", "length"), "PYRAMID": ("width", "depth")}
+# Parameters set by the RECT step (along the plane's X, along its Y) and by the RADIUS and RADIUS2 steps.
+# Prism: the rectangle holds an isosceles triangle, side 1 along X and the apex at the far side.
+_RECT_PARAMS = {
+    "BOX": ("width", "length"), "PLANE": ("width", "length"), "PYRAMID": ("width", "depth"),
+    "CHAMFERBOX": ("width", "length"), "L_EXT": ("front_length", "side_length"),
+    "C_EXT": ("front_length", "side_length"), "PRISM": ("side1_length", None),
+}
 _RADIUS_PARAM = {"CONE": "radius1", "TUBE": "radius1", "TORUS": "radius1"}
+_RADIUS2_PARAM = {"TORUS_KNOT": "cross_section_radius"}
+# Parameters set by the steps measuring a distance moved.
+_OFFSET_PARAMS = {
+    "FILLET": ("fillet",),
+    "CAP_HEIGHT": ("cap_height",),
+    "WIDTH": ("side_width", "front_width"),
+}
+_KIND_OFFSET_PARAMS = {("C_EXT", "WIDTH"): ("back_width", "side_width", "front_width")}
+# Kinds whose pivot is the first corner of the rectangle rather than its centre.
+_CORNER_PIVOT = {"PRISM"}
 
 # Below this size (in Blender units) the first drag doesn't create anything, as in Max.
 MIN_SIZE = 1e-6
@@ -194,6 +222,9 @@ class CreationSession:
         self.current = None
         self.location = plane.origin
         self.params = {}
+        self._extent = (0.0, 0.0)
+        self._last_height = None
+        self._offset_origin = None
 
     @property
     def step_name(self):
@@ -209,8 +240,7 @@ class CreationSession:
         self.step = 0
         self.params = {}
         if self.kind in _RECT_PARAMS:
-            for name in _RECT_PARAMS[self.kind]:
-                self.params[name] = 0.0
+            self._set_rect(0.0, 0.0)
         else:
             self.params[_RADIUS_PARAM.get(self.kind, "radius")] = 0.0
         if "HEIGHT" in self.steps:
@@ -218,8 +248,26 @@ class CreationSession:
         self._update_dependent()
         self._update_location()
 
+    def _set_rect(self, du, dv):
+        self._extent = (abs(du), abs(dv))
+        width_name, length_name = _RECT_PARAMS[self.kind]
+        self.params[width_name] = abs(du)
+        if self.kind == "PRISM":
+            slant = math.hypot(abs(du) * 0.5, abs(dv))
+            self.params["side2_length"] = self.params["side3_length"] = slant
+        else:
+            self.params[length_name] = abs(dv)
+        if self.kind == "C_EXT":
+            self.params["back_length"] = abs(du)
+
+    def _offset_names(self, step):
+        return _KIND_OFFSET_PARAMS.get((self.kind, step), _OFFSET_PARAMS[step])
+
     def _update_location(self):
-        if self.steps[0] == "RECT":
+        if self.kind in _CORNER_PIVOT:
+            u = min(self.anchor[0], self.current[0])
+            v = min(self.anchor[1], self.current[1])
+        elif self.steps[0] == "RECT":
             # Pivot at the centre of the rectangle.
             u = (self.anchor[0] + self.current[0]) * 0.5
             v = (self.anchor[1] + self.current[1]) * 0.5
@@ -233,6 +281,8 @@ class CreationSession:
             self.params["radius2"] = self.params["radius1"]
         elif self.kind == "TORUS" and self.step == 0:
             self.params["radius2"] = self.params["radius1"] * 0.1
+        elif self.kind == "TORUS_KNOT" and self.step == 0:
+            self.params["cross_section_radius"] = self.params["radius"] * 0.2
 
     def update(self, ray_origin, ray_direction, square=False, fallback_height=None):
         """
@@ -254,22 +304,32 @@ class CreationSession:
                     du = math.copysign(side, du)
                     dv = math.copysign(side, dv)
                     self.current = (self.anchor[0] + du, self.anchor[1] + dv)
-                width_name, length_name = _RECT_PARAMS[self.kind]
-                self.params[width_name] = abs(du)
-                self.params[length_name] = abs(dv)
+                self._set_rect(du, dv)
             else:
                 self.params[_RADIUS_PARAM.get(self.kind, "radius")] = math.hypot(du, dv)
             self._update_location()
         elif name == "HEIGHT":
             # Height along the plane normal, measured on the vertical line through the last point of the base.
-            base = self.plane.to_world(*self.current)
-            height = None
-            if abs(_dot(_normalized(ray_direction), self.plane.normal)) < 0.999:
-                height = closest_on_line(base, self.plane.normal, ray_origin, ray_direction)
+            height = self._height_on_axis(ray_origin, ray_direction)
+            self._last_height = height
             if height is None:
                 height = fallback_height
             if height is not None:
                 self.params["height"] = snap(height, self.snap_step)
+        elif name in _OFFSET_PARAMS:
+            # The distance moved up or down since the step started, measured like the height (in views looking
+            # down the height axis: the mouse's vertical movement since the click).
+            height = self._height_on_axis(ray_origin, ray_direction)
+            value = None
+            if height is not None:
+                if self._offset_origin is None:
+                    self._offset_origin = height
+                value = abs(height - self._offset_origin)
+            elif fallback_height is not None:
+                value = abs(fallback_height)
+            if value is not None:
+                for param in self._offset_names(name):
+                    self.params[param] = snap(value, self.snap_step)
         elif name == "RADIUS2":
             # A cone's top radius is measured on its top plane, the others on the construction plane.
             offset = self.params.get("height", 0.0) if self.kind == "CONE" else 0.0
@@ -278,16 +338,23 @@ class CreationSession:
                 return
             u, v = self._snap_local(hit)
             distance = math.hypot(u - self.anchor[0], v - self.anchor[1])
-            if self.kind == "TORUS":
+            if self.kind in ("TORUS", "TORUS_KNOT"):
                 # Radius 2 is the distance from the ring.
-                distance = abs(distance - self.params["radius1"])
-            self.params["radius2"] = distance
+                distance = abs(distance - self.params[_RADIUS_PARAM.get(self.kind, "radius")])
+            self.params[_RADIUS2_PARAM.get(self.kind, "radius2")] = distance
         self._update_dependent()
+
+    def _height_on_axis(self, ray_origin, ray_direction):
+        """Point on the line through the base point along the plane normal closest to the ray (None: parallel)."""
+        base = self.plane.to_world(*self.current)
+        if abs(_dot(_normalized(ray_direction), self.plane.normal)) < 0.999:
+            return closest_on_line(base, self.plane.normal, ray_origin, ray_direction)
+        return None
 
     def is_valid(self):
         """Whether the base drawn in the first step is big enough to create an object."""
         if self.steps[0] == "RECT":
-            return all(self.params[name] > MIN_SIZE for name in _RECT_PARAMS[self.kind])
+            return all(extent > MIN_SIZE for extent in self._extent)
         return self.params[_RADIUS_PARAM.get(self.kind, "radius")] > MIN_SIZE
 
     def advance(self):
@@ -301,5 +368,11 @@ class CreationSession:
         if self.step >= len(self.steps):
             self.step = len(self.steps) - 1
             return "FINISHED"
+        name = self.step_name
+        if name in _OFFSET_PARAMS:
+            # Starts from zero where the previous step was confirmed.
+            self._offset_origin = self._last_height
+            for param in self._offset_names(name):
+                self.params[param] = 0.0
         self._update_dependent()
         return "CONTINUE"
