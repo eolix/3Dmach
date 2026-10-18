@@ -727,20 +727,21 @@ class MaximizeTest(unittest.TestCase):
 
     def test_plan_each_quadrant(self):
         from mx_ui.chrome import maximize
-        # Top-left: vertical edge to the right side, horizontal edge to the bottom.
+        # Top-left (index 0): its right edge goes to the block's right side, its bottom edge to the bottom.
         (vx, vy, dvx, _), (hx, hy, dhy, _) = maximize.plan(self.RECTS, 0)
         self.assertEqual((vx, dvx, hy, dhy), (600, 500, 450, -400))
-        # Bottom-right: vertical edge to the left side, horizontal edge to the top.
+        # Bottom-right (index 3): its left edge goes to the left side, its top edge to the top.
         (vx, vy, dvx, _), (hx, hy, dhy, _) = maximize.plan(self.RECTS, 3)
         self.assertEqual((vx, dvx, hy, dhy), (600, -500, 450, 400))
-        self.assertEqual((vy, hx), (450, 600))
+        # The points lie inside the target's extent, so they pick the segment bordering it.
+        self.assertEqual((vy, hx), (250, 850))
 
     def test_restore_plan(self):
         from mx_ui.chrome import maximize
-        # After maximizing the top-left view the edges sit near the far sides; restore to the middle.
-        squeezed = [(100, 80, 970, 770), (1070, 80, 30, 770), (100, 50, 970, 30), (1070, 50, 30, 30)]
-        (vx, _, dvx, _), (_, hy, dhy, _) = maximize.restore_plan(squeezed, (0.5, 0.5))
+        # Bottom-right was maximized to (130, 50, 970, 770); its edges go back to x=600, y=450.
+        (vx, _, dvx, _), (_, hy, dhy, _) = maximize.restore_plan((130, 50, 970, 770), (600, 450), True, False)
         self.assertEqual((vx + dvx, hy + dhy), (600, 450))
+        self.assertEqual((vx, hy), (130, 820))
 
     def test_not_a_block(self):
         from mx_ui.chrome import maximize

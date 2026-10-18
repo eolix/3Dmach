@@ -22,12 +22,16 @@ SCREEN_KEY = "mx_viewport_maximized"
 
 def plan(rects, target):
     """
-    Work out the edge moves that maximize viewport ``target`` (pure geometry, testable without Blender).
+    Work out the two edge moves that maximize viewport ``target`` (pure geometry, testable without Blender).
 
-    :arg rects: ``(x, y, width, height)`` of the four viewports (window pixels).
+    The 2x2 block may have been split rows-first or columns-first, so an inner edge can be one straight line or
+    two separate segments. Each move is made at a point inside the target's own extent, which always picks the
+    edge (segment) bordering the target; the area beyond the other edge segment becomes a sliver anyway.
+
+    :arg rects: ``(x, y, width, height)`` of the four viewports (window pixels, y up).
     :arg target: Index into ``rects`` of the viewport to maximize.
-    :return: ``(vertical, horizontal)`` moves, each ``(x, y, delta, start)``: a point on the inner edge, the
-       distance to move it (positive = right/up) and the edge's current coordinate; or None when the rectangles
+    :return: ``(vertical, horizontal)`` moves, each ``(x, y, delta, edge)``: a point on the edge, the distance to
+       move it (positive = right/up) and the edge's coordinate before the move; or None when the rectangles
        aren't a 2x2 block.
     """
     if len(rects) != 4:
@@ -36,36 +40,36 @@ def plan(rects, target):
     right = max(r[0] + r[2] for r in rects)
     bottom = min(r[1] for r in rects)
     top = max(r[1] + r[3] for r in rects)
-    columns = sorted({r[0] for r in rects})
-    rows = sorted({r[1] for r in rects})
-    if len(columns) != 2 or len(rows) != 2:
-        return None
-    edge_x, edge_y = columns[1], rows[1]
-    tx, ty = rects[target][0], rects[target][1]
-    # Push each inner edge away from the target: to the far left when the target is in the right column, etc.
-    dx = (left - edge_x) if tx == edge_x else (right - edge_x)
-    dy = (bottom - edge_y) if ty == edge_y else (top - edge_y)
-    mid_x, mid_y = (left + right) // 2, (bottom + top) // 2
-    return (edge_x, mid_y, dx, edge_x), (mid_x, edge_y, dy, edge_y)
+    tx, ty, tw, th = rects[target]
+    in_right_column = tx > left
+    in_top_row = ty > bottom
+    if in_right_column == (tx + tw < right) or in_top_row == (ty + th < top):
+        return None     # Not a corner of the block: not a 2x2 layout.
+    mid_x, mid_y = tx + tw // 2, ty + th // 2
+    # Vertical edge on the target's inner side, pushed to the block's far side.
+    if in_right_column:
+        vertical = (tx, mid_y, left - tx, tx)
+    else:
+        vertical = (tx + tw, mid_y, right - (tx + tw), tx + tw)
+    if in_top_row:
+        horizontal = (mid_x, ty, bottom - ty, ty)
+    else:
+        horizontal = (mid_x, ty + th, top - (ty + th), ty + th)
+    return vertical, horizontal
 
 
-def restore_plan(rects, original):
-    """Edge moves putting the inner edges back at ``original`` = (edge_x fraction, edge_y fraction)."""
-    if len(rects) != 4:
-        return None
-    left = min(r[0] for r in rects)
-    right = max(r[0] + r[2] for r in rects)
-    bottom = min(r[1] for r in rects)
-    top = max(r[1] + r[3] for r in rects)
-    columns = sorted({r[0] for r in rects})
-    rows = sorted({r[1] for r in rects})
-    if len(columns) != 2 or len(rows) != 2:
-        return None
-    edge_x, edge_y = columns[1], rows[1]
-    want_x = round(left + original[0] * (right - left))
-    want_y = round(bottom + original[1] * (top - bottom))
-    mid_x, mid_y = (left + right) // 2, (bottom + top) // 2
-    return (edge_x, mid_y, want_x - edge_x, edge_x), (mid_x, edge_y, want_y - edge_y, edge_y)
+def restore_plan(rect, original_edges, in_right_column, in_top_row):
+    """
+    Edge moves that put the maximized viewport's inner edges back where they were.
+
+    :arg rect: The maximized viewport's current ``(x, y, width, height)``.
+    :arg original_edges: ``(x, y)`` of its inner vertical and horizontal edges before maximizing.
+    """
+    x, y, w, h = rect
+    mid_x, mid_y = x + w // 2, y + h // 2
+    edge_x = x if in_right_column else x + w
+    edge_y = y if in_top_row else y + h
+    return (edge_x, mid_y, original_edges[0] - edge_x, edge_x), (mid_x, edge_y, original_edges[1] - edge_y, edge_y)
 
 
 def viewport_areas(screen):
@@ -77,10 +81,12 @@ def _rect(area):
 
 
 def _move(context, x, y, delta):
+    """Move the screen edge at (x, y) by ``delta`` pixels (positive = right/up)."""
     if delta == 0:
         return
     with context.temp_override(window=context.window, screen=context.screen):
-        bpy.ops.screen.area_move(x=int(x), y=int(y), delta=int(delta))
+        # `screen.area_move` counts its delta the other way round (positive moves the edge left/down).
+        bpy.ops.screen.area_move(x=int(x), y=int(y), delta=-int(delta))
 
 
 class MXUI_OT_max_viewport_maximize(Operator):
@@ -98,37 +104,37 @@ class MXUI_OT_max_viewport_maximize(Operator):
     def execute(self, context):
         screen = context.screen
         areas = viewport_areas(screen)
-        rects = [_rect(a) for a in areas]
         stored = screen.get(SCREEN_KEY)
         if stored:
-            moves = restore_plan(rects, tuple(stored))
-            if moves is None:
+            index, edge_x, edge_y, right_column, top_row = (int(v) for v in stored)
+            if index >= len(areas):
+                del screen[SCREEN_KEY]
                 return {'CANCELLED'}
-            for (x, y, delta, _start) in moves:
+            moves = restore_plan(_rect(areas[index]), (edge_x, edge_y), bool(right_column), bool(top_row))
+            for (x, y, delta, _edge) in moves:
                 _move(context, x, y, delta)
             for area in areas:
                 area.spaces.active.show_region_header = True
             del screen[SCREEN_KEY]
             return {'FINISHED'}
 
-        target = context.area if context.area in areas else None
-        if target is None:
+        if context.area not in areas:
             return {'CANCELLED'}
-        index = areas.index(target)
+        index = areas.index(context.area)
+        rects = [_rect(a) for a in areas]
         moves = plan(rects, index)
         if moves is None:
             return {'CANCELLED'}
+        (_vx, _vy, _dvx, edge_x), (_hx, _hy, _dhy, edge_y) = moves
         left = min(r[0] for r in rects)
-        right = max(r[0] + r[2] for r in rects)
         bottom = min(r[1] for r in rects)
-        top = max(r[1] + r[3] for r in rects)
-        (vx, _vy, _dvx, _sx), (_hx, hy, _dhy, _sy) = moves
-        screen[SCREEN_KEY] = ((vx - left) / max(right - left, 1), (hy - bottom) / max(top - bottom, 1))
-        for (x, y, delta, _start) in moves:
-            _move(context, x, y, delta)
+        screen[SCREEN_KEY] = (index, edge_x, edge_y, int(rects[index][0] > left), int(rects[index][1] > bottom))
+        # Hidden headers let the other viewports shrink below header size.
         for area in areas:
-            if area != target:
+            if area != context.area:
                 area.spaces.active.show_region_header = False
+        for (x, y, delta, _edge) in moves:
+            _move(context, x, y, delta)
         return {'FINISHED'}
 
 
