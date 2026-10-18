@@ -117,7 +117,7 @@ Goal: a forked, buildable, testable repo that contributors can join.
 
 - [x] Fork Blender at the chosen LTS; record version in `docs/decisions/0001-base-version.md`. *(Proposed 5.2 LTS, `v5.2.2`; branch `mx/main`. Waiting for confirmation and a hosted remote.)* *(Branch `mx/main` at `v5.2.2` on `eolix/3Dmach`.)*
 - [ ] Confirm a clean build on Windows; document build steps in `docs/BUILDING.md`.
-- [ ] Rename app branding to `3Dmach` (window title, splash text, about box). Keep Blender credit and licence notices intact.
+- [~] Rename app branding to `3Dmach` (window title, splash text, about box). Keep Blender credit and licence notices intact. *(Window title "… - 3Dmach (based on Blender 5.2.2)"; Blender's splash disabled by default. Original splash/about box and icons: Phase 4. Not yet compiled, see `docs/BUILDING.md`.)*
 - [x] Create the add-on and `pylibs/maxfile` skeletons from §4.2, with `pytest` wired up.
 - [x] Headless test runner (`tests/blender/run_tests.py`): a script that runs every test in `tests/blender/` via `blender -b --factory-startup --python ...` and exits non-zero on failure.
 - [~] CI (GitHub Actions or similar): build on at least one platform, run `pytest pylibs/maxfile` and `pytest tests/corpus`, run headless Blender tests. *(`.github/workflows/tests.yml` (pytest + headless tests on official 5.2.2) runs on every `mx/**` push; `build.yml` (full Linux x64 build) is manual and not yet verified.)*

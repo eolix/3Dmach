@@ -1550,6 +1550,9 @@ UserDef *BKE_blendfile_userdef_from_defaults()
   /* 3Dmach: the Max-style keymap (preset `scripts/presets/keyconfig/Max-Style.py`, filled by `mx_keymap`). */
   STRNCPY(userdef->keyconfigstr, "Max-Style");
 
+  /* 3Dmach: Blender's splash screen shows Blender's logo and artwork, which a fork must not present as its own. */
+  userdef->uiflag |= USER_SPLASH_DISABLE;
+
   /* Theme. */
   {
     bTheme *btheme = MEM_new_uninitialized<bTheme>(__func__);

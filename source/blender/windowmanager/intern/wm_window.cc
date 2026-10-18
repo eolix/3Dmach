@@ -607,7 +607,7 @@ static std::string wm_window_title_text(
     if (is_single && area && area->spacetype != SPACE_EMPTY) {
       return IFACE_(ED_area_name(area).c_str());
     }
-    return "Blender";
+    return "3Dmach";
   }
 
   /* This path may contain invalid UTF8 byte sequences on UNIX systems,
@@ -690,7 +690,8 @@ static std::string wm_window_title_text(
     }
   }
 
-  win_title.append(fmt::format(" - Blender {}", BKE_blender_version_string()));
+  /* 3Dmach: the fork's own name, crediting Blender. */
+  win_title.append(fmt::format(" - 3Dmach (based on Blender {})", BKE_blender_version_string()));
 
   return win_title;
 }
