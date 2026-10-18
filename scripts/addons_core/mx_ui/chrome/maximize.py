@@ -85,8 +85,7 @@ def _move(context, x, y, delta):
     if delta == 0:
         return
     with context.temp_override(window=context.window, screen=context.screen):
-        # `screen.area_move` counts its delta the other way round (positive moves the edge left/down).
-        bpy.ops.screen.area_move(x=int(x), y=int(y), delta=-int(delta))
+        bpy.ops.screen.area_move(x=int(x), y=int(y), delta=int(delta))
 
 
 class MXUI_OT_max_viewport_maximize(Operator):
