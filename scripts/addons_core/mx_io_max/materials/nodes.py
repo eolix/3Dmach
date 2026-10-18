@@ -31,9 +31,10 @@ def uv_layer_name(channel):
 class MaterialBuilder:
     """Builds materials for one import, sharing images and reporting missing textures."""
 
-    def __init__(self, resolver=None, report=None):
+    def __init__(self, resolver=None, report=None, unit_scale=1.0):
         self.resolver = resolver
         self.report = report
+        self.unit_scale = unit_scale        # Metres per scene unit, for maps sized in scene units (Noise).
         self._images = {}
 
     # Public API.
@@ -211,22 +212,28 @@ class MaterialBuilder:
         uvmap.uv_map = uv_layer_name(channel)
         if tiling == (1.0, 1.0) and offset == (0.0, 0.0) and rotation == 0.0:
             return uvmap.outputs["UV"]
+        from .maps import rotate_uv_center
         mapping = tree.nodes.new("ShaderNodeMapping")
         mapping.location = (location[0] - COLUMN * 0.5, location[1])
         # Max tiles and rotates around the map centre; Blender's mapping node works around the origin.
-        mapping.inputs["Location"].default_value = (-offset[0], -offset[1], 0.0)
-        mapping.inputs["Rotation"].default_value = (0.0, 0.0, rotation)
+        (lx, ly), rz = rotate_uv_center(tiling, offset, rotation)
+        mapping.inputs["Location"].default_value = (lx, ly, 0.0)
+        mapping.inputs["Rotation"].default_value = (0.0, 0.0, rz)
         mapping.inputs["Scale"].default_value = (tiling[0], tiling[1], 1.0)
         tree.links.new(uvmap.outputs["UV"], mapping.inputs["Vector"])
         return mapping.outputs["Vector"]
 
-    def _image(self, path, srgb):
+    def _image(self, path, srgb, resolved_path=None):
         """Load each (file, colour space) once per import; never reuse or alter images already in the file."""
         key = (path, srgb)
         if key in self._images:
             return self._images[key]
         image = None
         local = self.resolver.resolve(path) if self.resolver else (path if path else None)
+        if local is None and resolved_path and resolved_path != path:
+            local = self.resolver.resolve(resolved_path) if self.resolver else resolved_path
+            if local is not None and self.resolver is not None and path in self.resolver.missing:
+                self.resolver.missing.remove(path)
         if local:
             try:
                 image = bpy.data.images.load(local, check_existing=False)
@@ -244,7 +251,7 @@ class MaterialBuilder:
         x, y = location
         if isinstance(tex, model.Bitmap):
             srgb = tex.srgb if tex.srgb is not None else color
-            image = self._image(tex.path, srgb)
+            image = self._image(tex.path or tex.resolved_path, srgb, tex.resolved_path)
             node = tree.nodes.new("ShaderNodeTexImage")
             node.location = (x - COLUMN * 0.5, y)
             node.label = tex.name or (tex.path.replace("\\", "/").rsplit("/", 1)[-1] if tex.path else "")
@@ -269,16 +276,24 @@ class MaterialBuilder:
                            node.inputs["Vector"])
             return node.outputs["Color"]
         if isinstance(tex, model.Noise):
+            coords = tree.nodes.new("ShaderNodeTexCoord")
+            coords.location = (x - COLUMN * 1.6, y)
             node = tree.nodes.new("ShaderNodeTexNoise")
             node.location = (x - COLUMN, y)
-            # Max noise size is in scene units (object space); Blender's scale is features per unit.
-            node.inputs["Scale"].default_value = 1.0 / max(tex.size, 1e-4) * 10.0
+            # Max noise works in object space with a feature size in scene units; Blender's scale is features
+            # per metre of the object coordinates.
+            tree.links.new(coords.outputs["Object"], node.inputs["Vector"])
+            node.inputs["Scale"].default_value = 1.0 / max(tex.size * self.unit_scale, 1e-6)
             node.inputs["Detail"].default_value = tex.levels if tex.kind != "REGULAR" else 0.0
             ramp = tree.nodes.new("ShaderNodeMix")
             ramp.data_type = 'RGBA'
             ramp.location = (x - COLUMN * 0.4, y)
             ramp.inputs[6].default_value = (*tex.color1[:3], 1.0)
             ramp.inputs[7].default_value = (*tex.color2[:3], 1.0)
+            if tex.map1 is not None:
+                self._value_or_map(tree, tex.map1, ramp.inputs[6], (x - COLUMN * 1.5, y))
+            if tex.map2 is not None:
+                self._value_or_map(tree, tex.map2, ramp.inputs[7], (x - COLUMN * 1.5, y - ROW))
             tree.links.new(node.outputs["Fac"], ramp.inputs["Factor"])
             return ramp.outputs[2]
         if isinstance(tex, model.Gradient):

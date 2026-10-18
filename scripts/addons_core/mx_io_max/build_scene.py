@@ -70,7 +70,7 @@ class SceneBuilder:
 
     def __init__(self, context, filepath, settings, report, file_units=None):
         from mx_common.units import METRES_PER_UNIT, scene_unit_in_metres
-        from .materials import nodes as material_nodes, textures
+        from .materials import maps as material_maps, nodes as material_nodes, textures
 
         self.context = context
         self.filepath = filepath
@@ -90,7 +90,12 @@ class SceneBuilder:
                             "choose the units in the import options if the scale is wrong")
         self.unit_scale *= scene_unit_in_metres(units, unit_scale)
         self.resolver = textures.TextureResolver(filepath, settings.texture_search_dirs)
-        self.materials = material_nodes.MaterialBuilder(self.resolver, report)
+        self.materials = material_nodes.MaterialBuilder(self.resolver, report, unit_scale=self.unit_scale)
+        self.maps = material_maps.MapConverter(
+            param_reader=self._map_params,
+            unsupported=lambda name: report.add_unsupported("map", name),
+            note=lambda text: self.note("materials", text))
+        self._scene = None
         self._mesh_cache = {}           # (geometry object index, offset matrix key) -> Mesh
         self._notes = {}                # Approximation note -> names of the objects it applies to.
         self._world_from = None         # Name of the node the World was made from.
@@ -98,6 +103,7 @@ class SceneBuilder:
         self.cameras = []               # (object, CameraDesc).
         self._physical_lights = 0       # Lights in physical units (photometric, sun systems).
         self._material_cache = {}       # material object index -> list of Blender materials (slots)
+        self._built_materials = {}      # material object index -> Blender material
         self.objects = {}               # node index -> Blender object
 
     # Units.
@@ -119,6 +125,7 @@ class SceneBuilder:
             self.collection = self.context.collection
 
         scene = mf.scene
+        self._scene = scene
         for node in self._parents_first(scene.roots):
             obj = self._build_node(scene, node)
             self.objects[node.index] = obj
@@ -380,7 +387,7 @@ class SceneBuilder:
         kind, params, notes = primitive_convert.builder_params(
             data.kind, dict(data.params), geometry.PARAMETERS, self.unit_scale if live else 1.0)
         for note in notes:
-            self.report.warn("{:s}: {:s}".format(name, note))
+            self.note(name, note)
         if kind is None:
             self.report.add_unsupported("primitive", data.kind)
             return bpy.data.meshes.new(name), False
@@ -443,10 +450,11 @@ class SceneBuilder:
             if decoded.sub_materials is not None:
                 built = []
                 for sub in decoded.sub_materials:
-                    built.append(self._build_material_data(sub) if sub is not None else None)
+                    built.append(self._built_material(sub) if sub is not None else None)
+                # maxfile gives the IDs 1-based (stored 0-based, see MaterialData.sub_ids).
                 result = (list(decoded.sub_ids) if decoded.sub_ids else list(range(1, len(built) + 1)), built)
             else:
-                result = (None, [self._build_material_data(decoded)])
+                result = (None, [self._built_material(decoded)])
         else:
             # Not decoded: a placeholder named after the class (it is reported by the builder).
             label = material_object.class_label()
@@ -454,34 +462,76 @@ class SceneBuilder:
         self._material_cache[material_object.index] = result
         return result
 
-    def _build_material_data(self, data):
-        from .materials import convert as material_convert
-        params = dict(data.params)
-        params.setdefault("name", data.name or data.class_name)
+    def _built_material(self, data):
+        """A Blender material for a decoded material, shared by every slot that uses the same Max material."""
+        key = getattr(data, "index", None)
+        if key is not None and key in self._built_materials:
+            return self._built_materials[key]
+        desc = self._material_desc(data, depth=0)
+        mat = self.materials.build(desc)
+        if _kind(desc) != "Placeholder":     # Placeholders are reported as unsupported by the builder.
+            self.report.add_imported("materials")
+        if key is not None:
+            self._built_materials[key] = mat
+        return mat
+
+    def _material_desc(self, data, depth):
+        """A material model description (Surface, Blend or Placeholder) for decoded material data."""
+        from .materials import convert as material_convert, model
+        name = data.name or data.class_name
+        if depth > 8:
+            return model.Placeholder(name=name, source_class=data.class_name)
+        components = getattr(data, "components", None)
+        if data.sub_materials is not None:
+            # A Multi/Sub-Object inside another material: Blender has one material per slot.
+            first = next((m for m in data.sub_materials if m is not None), None)
+            self.note(name, "nested Multi/Sub-Object material: its first sub-material is used")
+            return self._material_desc(first, depth + 1) if first is not None else model.Placeholder(
+                name=name, source_class=data.class_name)
+        if data.class_name == "Blend" and components:
+            a, b = (self._material_desc(c, depth + 1) if c is not None else None for c in (components + [None])[:2])
+            params = data.params or {}
+            amount = params.get("mix_amount", 0.0)
+            amount = amount / 100.0 if amount > 1.0 else amount
+            mask = (data.maps or {}).get("mask_map")
+            if mask is not None and params.get("mask_enabled", True) is not False:
+                converted = self._convert_map(mask)
+                if converted is not None:
+                    amount = converted
+            return model.Blend(name=name, a=a, b=b, amount=amount, source_class="Blend")
+        if components and data.class_name not in material_convert.CONVERTERS:
+            first = next((c for c in components if c is not None), None)
+            if first is not None:
+                labels = list((data.params or {}).get("components") or [])
+                self.note(name, "{:s} material imported as its {:s} material".format(
+                    data.class_name, labels[0] if labels else "first"))
+                desc = self._material_desc(first, depth + 1)
+                if hasattr(desc, "name"):
+                    desc.name = name
+                return desc
+        params = dict(data.params or {})
+        params.setdefault("name", name)
         for key, tex in (data.maps or {}).items():
             converted = self._convert_map(tex)
             if converted is not None:
                 params[key] = converted
-        desc = material_convert.convert(data.class_name, params)
-        if _kind(desc) != "Placeholder":     # Placeholders are reported as unsupported by the builder.
-            self.report.add_imported("materials")
-        return self.materials.build(desc)
+        return material_convert.convert(data.class_name, params)
 
     def _convert_map(self, tex):
-        """``maxfile`` MapData to a material model map (bitmaps only for now; others are reported)."""
-        from .materials import model
-        if tex is None:
+        """``maxfile`` MapData to a material model map (see ``materials/maps.py``)."""
+        return self.maps.convert(tex)
+
+    def _map_params(self, tex, slot):
+        """Raw parameter block values (param ID -> value) in reference ``slot`` of a map object."""
+        index = getattr(tex, "index", None)
+        if index is None or self._scene is None or not 0 <= index < len(self._scene.objects):
             return None
-        if tex.class_name in {"Bitmaptexture", "Bitmap", "VRayBitmap", "CoronaBitmap"} and tex.path:
-            params = tex.params or {}
-            return model.Bitmap(
-                name=tex.name or "", path=tex.path,
-                uv_channel=params.get("map_channel", 1),
-                tiling=(params.get("u_tiling", 1.0), params.get("v_tiling", 1.0)),
-                offset=(params.get("u_offset", 0.0), params.get("v_offset", 0.0)),
-            )
-        self.report.add_unsupported("map", tex.class_name)
-        return None
+        obj = self._scene.objects[index]
+        ref = obj.references.get(slot)
+        block = self._scene.param_block(self._scene.objects[ref]) if ref is not None else None
+        if block is None:
+            return None
+        return {pid: param.value for pid, param in block.params.items()}
 
     def _assign_materials(self, obj, scene, material_object, decoded):
         from . import material_ids

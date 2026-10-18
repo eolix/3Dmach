@@ -52,6 +52,7 @@ class TextureMap:
 @dataclasses.dataclass
 class Bitmap(TextureMap):
     path: str = ""                      # As stored in the .max file (often an absolute Windows path).
+    resolved_path: str | None = None    # Where Max last found the file (asset metadata), tried second.
     uv_channel: int = 1                 # Max map channel (1 = first UV set).
     tiling: tuple = (1.0, 1.0)
     offset: tuple = (0.0, 0.0)
@@ -78,6 +79,8 @@ class Checker(TextureMap):
 class Noise(TextureMap):
     color1: tuple = (0.0, 0.0, 0.0)
     color2: tuple = (1.0, 1.0, 1.0)
+    map1: TextureMap | None = None
+    map2: TextureMap | None = None
     size: float = 25.0                  # Max noise size, in scene units.
     levels: float = 3.0
     kind: str = "REGULAR"               # "REGULAR", "FRACTAL", "TURBULENCE".
