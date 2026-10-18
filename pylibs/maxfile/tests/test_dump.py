@@ -22,7 +22,7 @@ from synth_max import NULL, SceneBuilder, cont, f32, leaf, refs_ordered, text
 @pytest.fixture(scope="module")
 def max_path(tmp_path_factory):
     b = SceneBuilder()
-    dll = b.dll((0x2037, "Test objects"), (0x2039, "test.dlo"))
+    dll = b.dll((0x2037, "test.dlo"), (0x2039, "Test objects"))
     node = b.cls("Node", (1, 0), 1)
     prs = b.cls("PRS", (0x2005, 0), 0x9008)
     bez = b.cls("BezPos", (0x2008, 0), 0x900B)
@@ -58,7 +58,7 @@ def test_summary(max_path):
     assert '    [6] "Box001"  object=[2] Box  controller=[1] Position/Rotation/Scale  pos=(1, 2, 3)' in text_out
     assert "offset_pos=(0, 0, 1)" in text_out
     assert 'objects=2      #4    class=0x0000ABCD, 0x00001234 (0x000012340000ABCD)' in text_out
-    assert '0x2037="Test objects"' in text_out
+    assert '#0    "test.dlo"  "Test objects"' in text_out
 
 
 def test_summary_json(max_path):
@@ -105,7 +105,7 @@ def test_stream(max_path):
     status, out = _run(max_path, "--stream", "dlldirectory")
     assert status == 0
     assert "== Stream DllDirectory" in out
-    assert '0x2039 leaf' in out and '"test.dlo"' in out
+    assert '0x2037 leaf' in out and '"test.dlo"' in out
 
 
 def test_errors(max_path, tmp_path, capsys):

@@ -268,9 +268,23 @@ def _map_row(m):
 def _decoded_sections(mf) -> dict:
     """Geometry, primitives, modifier stacks and materials, as decoded by the registered decoders."""
     scene = mf.scene
-    geometry, primitives, stacks = [], [], []
+    geometry, primitives, stacks, lights, shapes = [], [], [], [], []
     for obj in scene.objects:
         info = registry.find_decoder(obj.class_id, obj.superclass_id)
+        if info is not None and info.kind in ("light", "camera", "shape"):
+            value = scene.decode(obj)
+            ref = _obj_ref(obj)
+            if value is None:
+                (shapes if info.kind == "shape" else lights).append(dict(ref, decoded=False))
+            elif info.kind == "shape":
+                shapes.append(dict(ref, kind=value.kind, source=value.source, splines=len(value.splines),
+                                   knots=sum(len(s.knots) for s in value.splines),
+                                   closed=sum(1 for s in value.splines if s.closed),
+                                   params=report.to_plain(value.params)))
+            else:
+                lights.append(dict(ref, class_name=value.class_name, params=report.to_plain(value.params),
+                                   target_node=getattr(value, "target_node", None)))
+            continue
         if info is None or not info.kind.startswith("geometry."):
             continue
         value = scene.decode(obj)
@@ -298,7 +312,8 @@ def _decoded_sections(mf) -> dict:
             seen.add(node.material.index)
             materials.append({"depth": 0, "index": node.material.index, "class": node.material.class_label(),
                               "decoded": False})
-    return {"geometry": geometry, "primitives": primitives, "modifier_stacks": stacks, "materials": materials}
+    return {"geometry": geometry, "primitives": primitives, "modifier_stacks": stacks, "materials": materials,
+            "lights_cameras": lights, "shapes": shapes}
 
 
 def _kv(params: dict) -> str:
@@ -343,6 +358,23 @@ def _print_decoded(data: dict, w):
     for m in data["modifier_stacks"]:
         w("  {:s}  base={:s}  modifiers={:s}\n".format(
             _ref_text(m), _ref_text(m["base"]), ", ".join(_ref_text(r) for r in m["modifiers"]) or "-"))
+    w("\n== Lights and cameras ({:d}) ==\n".format(len(data["lights_cameras"])))
+    for item in data["lights_cameras"]:
+        if not item.get("decoded", True):
+            w("  {:s}  (not decoded)\n".format(_ref_text(item)))
+            continue
+        line = "  {:s}  {:s}  {:s}".format(_ref_text(item), item["class_name"], _kv(item["params"]))
+        if item["target_node"] is not None:
+            line += "  target=[{:d}]".format(item["target_node"])
+        w(line + "\n")
+    w("\n== Shapes ({:d}) ==\n".format(len(data["shapes"])))
+    for item in data["shapes"]:
+        if not item.get("decoded", True):
+            w("  {:s}  (not decoded)\n".format(_ref_text(item)))
+            continue
+        w("  {:s}  kind={:s}  source={:s}  splines={:d} (closed {:d})  knots={:d}  {:s}\n".format(
+            _ref_text(item), item["kind"], item["source"], item["splines"], item["closed"], item["knots"],
+            _kv(item["params"])))
     w("\n== Materials used by nodes ({:d} rows) ==\n".format(len(data["materials"])))
     for m in data["materials"]:
         pad = "  " * (m["depth"] + 1)
