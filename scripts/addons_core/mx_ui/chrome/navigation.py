@@ -130,6 +130,10 @@ class MXUI_OT_viewport_maximize_toggle(Operator):
             return {'CANCELLED'}
         if hasattr(bpy.types, "MX_KEYMAP_OT_viewport_maximize"):
             result = run_in_viewport(context, area, region, bpy.ops.mx_keymap.viewport_maximize)
+        elif hasattr(bpy.types, "MXUI_OT_max_viewport_maximize"):
+            result = run_in_viewport(context, area, region, bpy.ops.mx_ui.max_viewport_maximize)
+            if 'FINISHED' not in result:
+                result = run_in_viewport(context, area, region, bpy.ops.screen.screen_full_area)
         else:
             result = run_in_viewport(context, area, region, bpy.ops.screen.screen_full_area)
         return result if 'FINISHED' in result else {'CANCELLED'}

@@ -719,5 +719,37 @@ class ZLayoutBuildTest(unittest.TestCase):
         self.assertTrue(chrome("_areas").is_max_workspace(workspace))
 
 
+class MaximizeTest(unittest.TestCase):
+    """Max-style Alt+W: geometry of the edge moves (the moves themselves need a window)."""
+
+    # A 2x2 block 1000x800 at (100, 50): columns split at x=600, rows at y=450.
+    RECTS = [(100, 450, 500, 400), (600, 450, 500, 400), (100, 50, 500, 400), (600, 50, 500, 400)]
+
+    def test_plan_each_quadrant(self):
+        from mx_ui.chrome import maximize
+        # Top-left: vertical edge to the right side, horizontal edge to the bottom.
+        (vx, vy, dvx, _), (hx, hy, dhy, _) = maximize.plan(self.RECTS, 0)
+        self.assertEqual((vx, dvx, hy, dhy), (600, 500, 450, -400))
+        # Bottom-right: vertical edge to the left side, horizontal edge to the top.
+        (vx, vy, dvx, _), (hx, hy, dhy, _) = maximize.plan(self.RECTS, 3)
+        self.assertEqual((vx, dvx, hy, dhy), (600, -500, 450, 400))
+        self.assertEqual((vy, hx), (450, 600))
+
+    def test_restore_plan(self):
+        from mx_ui.chrome import maximize
+        # After maximizing the top-left view the edges sit near the far sides; restore to the middle.
+        squeezed = [(100, 80, 970, 770), (1070, 80, 30, 770), (100, 50, 970, 30), (1070, 50, 30, 30)]
+        (vx, _, dvx, _), (_, hy, dhy, _) = maximize.restore_plan(squeezed, (0.5, 0.5))
+        self.assertEqual((vx + dvx, hy + dhy), (600, 450))
+
+    def test_not_a_block(self):
+        from mx_ui.chrome import maximize
+        self.assertIsNone(maximize.plan(self.RECTS[:3], 0))
+        self.assertIsNone(maximize.plan([(0, 0, 10, 10)] * 4, 0))
+
+    def test_poll_outside_max_layout(self):
+        self.assertFalse(bpy.ops.mx_ui.max_viewport_maximize.poll())
+
+
 if __name__ == "__main__":
     _runner_util.main()
