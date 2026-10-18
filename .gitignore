@@ -91,3 +91,6 @@ blendcache_*
 
 # 3Dmach: local .max test corpus, never committed (see tests/corpus/README.md).
 /tests/corpus/local/
+# .max scenes are never committed anywhere in this repository (docs/decisions/0004-local-corpus.md).
+*.max
+*.MAX

@@ -17,6 +17,15 @@ env:
   BLENDER_SHA256: "84098912789dc450e95697c4184fb8a90acbe5111c2ba4aede3fecb57806a168"
 
 jobs:
+  no-max-files:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: No .max files in the repository
+        run: |
+          found=$(git ls-files | grep -i '\.max$' || true)
+          if [ -n "$found" ]; then echo "::error::.max files must never be committed:"; echo "$found"; exit 1; fi
+
   pytest:
     runs-on: ubuntu-24.04
     steps:
