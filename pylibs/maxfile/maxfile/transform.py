@@ -27,6 +27,8 @@ __all__ = (
     "compose",
     "matmul",
     "quat_from_max",
+    "matrix3_to_quat",
+    "look_at_matrix3",
 )
 
 import dataclasses
@@ -88,6 +90,44 @@ def quat_from_max(q) -> Quat:
     The remaining 4 are nodes that moved after skinning.
     """
     return (q[3], -q[0], -q[1], -q[2])
+
+
+def matrix3_to_quat(m) -> Quat:
+    """Quaternion ``(w, x, y, z)`` of a rotation matrix (rows, column-vector convention)."""
+    trace = m[0][0] + m[1][1] + m[2][2]
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        return (0.25 * s, (m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s)
+    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
+        return ((m[2][1] - m[1][2]) / s, 0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s)
+    if m[1][1] > m[2][2]:
+        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
+        return ((m[0][2] - m[2][0]) / s, (m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s)
+    s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
+    return ((m[1][0] - m[0][1]) / s, (m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s)
+
+
+def look_at_matrix3(eye: Vec3, target: Vec3, roll: float = 0.0):
+    """
+    World rotation (rows, column vectors) of an object at ``eye`` whose local -Z axis points at ``target``, local
+    +Y up as far as possible (world +Z up; world +Y when looking straight up or down), turned by ``roll`` radians
+    about the viewing axis. Returns None when ``eye`` and ``target`` coincide.
+    """
+    z = tuple(e - t for e, t in zip(eye, target))
+    length = math.sqrt(sum(c * c for c in z))
+    if length == 0.0:
+        return None
+    z = tuple(c / length for c in z)
+    up = (0.0, 0.0, 1.0) if abs(z[2]) < 0.999999 else (0.0, 1.0, 0.0)
+    x = (up[1] * z[2] - up[2] * z[1], up[2] * z[0] - up[0] * z[2], up[0] * z[1] - up[1] * z[0])
+    n = math.sqrt(sum(c * c for c in x))
+    x = tuple(c / n for c in x)
+    y = (z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0])
+    if roll:
+        c, s = math.cos(roll), math.sin(roll)
+        x, y = tuple(c * a + s * b for a, b in zip(x, y)), tuple(-s * a + c * b for a, b in zip(x, y))
+    return tuple((x[i], y[i], z[i]) for i in range(3))
 
 
 def compose(position: Vec3 | None, rotation: Quat | None, scale: Vec3 | None) -> Matrix4:

@@ -39,7 +39,7 @@ from . import registry
 from .chunks import Chunk, ChunkStream, f32s, u32s
 from .classes import ClassDirectory, ClassEntry, ClassID
 from .errors import DecodeError, MaxFileError
-from .transform import IDENTITY, Matrix4, Transform, matmul, quat_from_max
+from .transform import IDENTITY, Matrix4, Transform, look_at_matrix3, matmul, matrix3_to_quat, quat_from_max
 
 SCENE_STREAM = "Scene"
 
@@ -487,6 +487,38 @@ def _link_hierarchy(scene: Scene, problems: collections.Counter):
             scene.roots.append(node)
 
 
+def _aim(scene, node, value, problems):
+    """Set the rotation of a node with a Look At controller: its local -Z axis points at the target node.
+
+    Guess (Max's convention for target cameras and lights; the same as Blender's for cameras and lights): local -Z
+    towards the target, local +Y up, world +Z as the up reference. Parents with rotation or non-uniform scale are
+    taken into account through their world matrix.
+    """
+    target = scene.node(value.target_node) if value.target_node is not None else None
+    if target is None:
+        problems["Look At controller without a target node"] += 1
+        return
+    eye_world = node.world_matrix()
+    target_world = target.world_matrix()
+    eye = tuple(eye_world[i][3] for i in range(3))
+    goal = tuple(target_world[i][3] for i in range(3))
+    world_rot = look_at_matrix3(eye, goal, value.roll)
+    if world_rot is None:
+        problems["Look At node at its target's position"] += 1
+        return
+    rot = world_rot
+    if node.parent is not None:
+        p = node.parent.world_matrix()
+        axes = []
+        for c in range(3):
+            column = [p[r][c] for r in range(3)]
+            length = sum(v * v for v in column) ** 0.5 or 1.0
+            axes.append([v / length for v in column])
+        # Local rotation = parent rotation^T @ world rotation.
+        rot = tuple(tuple(sum(axes[r][k] * world_rot[k][c] for k in range(3)) for c in range(3)) for r in range(3))
+    node.transform = Transform(node.transform.position, matrix3_to_quat(rot), node.transform.scale)
+
+
 def parse_scene(stream: ChunkStream | None, classes: ClassDirectory) -> Scene:
     """Build the :class:`Scene` from the ``Scene`` chunk stream and the class directory."""
     warnings = []
@@ -535,15 +567,22 @@ def parse_scene(stream: ChunkStream | None, classes: ClassDirectory) -> Scene:
             scene._node_by_index[obj.index] = node
     _link_hierarchy(scene, problems)
 
+    from .objects.controllers import LookAt
     undecoded_controllers = collections.Counter()
+    look_ats = []
     for node in scene.nodes:
         if node.controller is None:
             continue
         value = scene.decode(node.controller)
         if isinstance(value, Transform):
             node.transform = value
+        elif isinstance(value, LookAt):
+            node.transform = Transform(value.position, None, value.scale)
+            look_ats.append((node, value))
         else:
             undecoded_controllers[node.controller.class_label()] += 1
+    for node, value in look_ats:
+        _aim(scene, node, value, problems)
     for label, count in sorted(undecoded_controllers.items()):
         warnings.append("{:d} node(s): transform controller {:s} not decoded".format(count, label))
     for message, count in sorted(problems.items()):

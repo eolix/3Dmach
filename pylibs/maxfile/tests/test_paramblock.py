@@ -94,6 +94,22 @@ def test_param_block2_unknown_type_stops_reference_assignment():
         assert any("not assigned" in p for p in data.problems)
 
 
+def test_param_block2_asset_reference():
+    b = Builder()
+    guid = bytes(range(16))
+    asset_record = leaf(0x100E, struct.pack("<HIHIHB", 4, 9, 2, 0x80, 2, 0x40) + u32(0xFFFFFFFE))
+    block = b.obj(b.pb2, *pb2_block(0, pb2_param(3, "int", 7), asset_record, cont(0x000F, leaf(0x0002, guid)),
+                                    pb2_param(5, "filename", "plain.png")))
+    lonely = b.obj(b.pb2, *pb2_block(0, asset_record))
+    with maxfile.open(b.build()) as mf:
+        data = mf.scene.param_block(mf.objects[block])
+        ref = data.value(4)
+        assert ref.guid == "03020100-0504-0706-0809-0a0b0c0d0e0f" and ref.raw == guid
+        assert data.value(3) == 7 and data.value(5) == "plain.png" and data.problems == []
+        bad = mf.scene.param_block(mf.objects[lonely])
+        assert bad.value(4) is None and any("without its 0x000F chunk" in p for p in bad.problems)
+
+
 def test_old_param_block():
     b = Builder()
     ctrl = b.obj(b.float_ctrl, leaf(0x2501, f32(4.0)))

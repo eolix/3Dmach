@@ -229,6 +229,20 @@ def test_decode_is_cached():
         assert mf.scene.decode(None) is None
 
 
+def test_look_at_points_minus_z_at_target():
+    b = Builder()
+    look_at = b.cls("Look At", (0x2006, 0), 0x9008)
+    target = b.node(b.node_class, "Spot01.Target",
+                    refs=[b.ctrl("prs", refs_ordered(b.ctrl("bezier_pos", leaf(0x2503, f32(10, 0, 0)))))])
+    eye_pos = b.ctrl("bezier_pos", leaf(0x2503, f32(0, 0, 0)))
+    spot = b.node(b.node_class, "Spot01", refs=[b.obj(look_at, refs_ordered(target, eye_pos, b.float_ctrl(0.0)))])
+    with _open(b) as mf:
+        m = mf.scene.node(spot).world_matrix()
+        assert _approx([-m[0][2], -m[1][2], -m[2][2]], [1, 0, 0])     # -Z towards the target.
+        assert _approx([m[0][1], m[1][1], m[2][1]], [0, 0, 1])        # +Y up.
+        assert mf.warnings == []
+
+
 def test_world_matrix():
     b = Builder()
     p_ctrl = b.ctrl("prs", refs_ordered(b.ctrl("bezier_pos", leaf(0x2503, f32(10, 0, 0)))))

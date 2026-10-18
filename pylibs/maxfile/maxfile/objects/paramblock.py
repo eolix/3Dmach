@@ -28,7 +28,11 @@ class of what they reference): 0 float, 1 int, 2 RGB colour (3 floats), 3 point 
 5 angle (float, radians), 6 percentage (float fraction: 0.1 = 10 %), 7 world-space distance (float), 8 string,
 9 file name, 12 time (int), 13 radio button index (int), 14 material, 15 texture map, 16 one byte (meaning
 unknown), 17 node, 18 any reference, 19 index (int), 20 matrix (52 bytes), 23 RGBA colour (4 floats). Strings are
-``u32 length`` (0xFFFFFFFF = none) then that many bytes of 8-bit text including a terminating NUL.
+``u32 length`` (0xFFFFFFFF = none) then that many bytes of 8-bit text including a terminating NUL. A length of
+0xFFFFFFFE (1,754 file-name parameters in the corpus) means the value is an asset reference: the record ends there
+and the next chunk of the block, a ``0x000F`` container, holds the asset's 16-byte ID in ``0x0002`` (the IDs the
+``FileAssetMetaData3`` stream lists with their paths). Such values are :class:`AssetRef` objects. Records of a type
+the reader can't size but without any value bytes (type 25, 194 records) are read as None.
 
 **ParamBlock** (class 0x8, superclass 0x8; older plugins such as Bend or the Standard material's shader-less
 parts). Children: ``0x0001`` u32 count, ``0x0005`` u16, then one ``0x0002`` container per parameter holding
@@ -42,6 +46,7 @@ Values driven by a controller are given as the controller's static value when it
 """
 
 __all__ = (
+    "AssetRef",
     "Param",
     "ParamBlockData",
     "TYPE_NAMES",
@@ -52,6 +57,7 @@ __all__ = (
 
 import dataclasses
 import struct
+import uuid
 from typing import Any
 
 from ..errors import DecodeError
@@ -59,6 +65,9 @@ from ..registry import decoder
 
 PB2_HEADER = 0x0009
 PB2_RECORDS = (0x100E, 0x000E)
+PB2_ASSET = 0x000F          # Container after a record whose string length is ASSET_STRING: 0x0002 = asset ID.
+PB2_ASSET_ID = 0x0002
+ASSET_STRING = 0xFFFFFFFE
 PB_COUNT = 0x0001
 PB_PARAM = 0x0002
 PB_INDEX = 0x0003
@@ -87,6 +96,20 @@ _FORMATS = {
 # Old ParamBlock value chunks: chunk type -> (name, format); +0x100 = the same type, driven by a controller.
 _OLD_VALUES = {0x0100: ("float", "<f"), 0x0101: ("int", "<i"), 0x0102: ("point3", "<3f"),
                0x0103: ("rgb", "<3f"), 0x0104: ("int", "<i")}
+
+
+@dataclasses.dataclass(frozen=True)
+class AssetRef:
+    """A file-name parameter stored as a reference into the file's asset table."""
+    guid: str                       # Canonical text form, e.g. "2fd48fc1-c16d-4a1c-a89c-b37183364429".
+    raw: bytes = dataclasses.field(default=b"", repr=False)    # The 16 bytes as stored.
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "AssetRef":
+        return cls(str(uuid.UUID(bytes_le=bytes(data[:16]))), bytes(data[:16]))
+
+
+_PENDING_ASSET = object()   # Placeholder until the 0x000F chunk after the record is read.
 
 
 @dataclasses.dataclass
@@ -136,6 +159,8 @@ def _string(data, pos):
     pos += 4
     if n == NULL:
         return None, pos
+    if n == ASSET_STRING:
+        return _PENDING_ASSET, pos
     raw = bytes(data[pos:pos + n])
     if len(raw) < n:
         raise DecodeError("string of {:d} bytes runs past the record".format(n))
@@ -160,6 +185,8 @@ def _read_value(base, data, pos, is_ref, inline_ref):
         return text, pos, False
     fmt = _FORMATS.get(base)
     if fmt is None:
+        if pos >= len(data):
+            return None, pos, False     # Nothing stored (type 25 records, for example).
         raise DecodeError("unknown parameter type {:d}".format(base))
     size = struct.calcsize(fmt)
     values = struct.unpack_from(fmt, data, pos)
@@ -221,6 +248,18 @@ def _record(data):
     return param, requests
 
 
+def _has_pending(param):
+    values = param.value if isinstance(param.value, list) else [param.value]
+    return any(v is _PENDING_ASSET for v in values)
+
+
+def _set_pending(param, value):
+    if isinstance(param.value, list):
+        param.value = [value if v is _PENDING_ASSET else v for v in param.value]
+    else:
+        param.value = value
+
+
 def _static(ctx, index):
     """The static value of the controller at ``index`` (None when unknown)."""
     if ctx is None or index is None:
@@ -240,7 +279,19 @@ def read_param_block2(obj, ctx=None) -> ParamBlockData:
         block.block_id = struct.unpack_from("<H", header.data, 0)[0]
         block.owner = struct.unpack_from("<I", header.data, 12)[0]
     requests = []
+    pending = None      # A parameter whose asset ID follows in the next chunk.
     for child in chunk.children:
+        if pending is not None:
+            if child.type == PB2_ASSET and child.is_container:
+                found = child.find(PB2_ASSET_ID)
+                if found is not None and found.payload_size >= 16:
+                    _set_pending(pending, AssetRef.from_bytes(found.data))
+                    pending = None
+                    continue
+            block.problems.append("parameter {:d}: asset reference without its 0x000F chunk".format(
+                pending.param_id))
+            _set_pending(pending, None)
+            pending = None
         if child.type not in PB2_RECORDS or child.is_container:
             continue
         try:
@@ -251,8 +302,13 @@ def read_param_block2(obj, ctx=None) -> ParamBlockData:
             requests = None
             continue
         block.params.setdefault(param.param_id, param)
+        if _has_pending(param):
+            pending = param
         if requests is not None:
             requests.extend(wanted)
+    if pending is not None:
+        block.problems.append("parameter {:d}: asset reference without its 0x000F chunk".format(pending.param_id))
+        _set_pending(pending, None)
     refs = getattr(obj, "references", {})
     if requests is None:
         if refs:

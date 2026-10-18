@@ -12,6 +12,8 @@ Return values: position and scale controllers give a ``(x, y, z)`` tuple, rotati
 quaternion, float controllers a ``float``, and Position/Rotation/Scale a :class:`maxfile.transform.Transform`.
 """
 
+import dataclasses
+
 from ..chunks import f32s
 from ..errors import DecodeError
 from ..registry import decoder
@@ -73,6 +75,15 @@ def _three_floats(obj, ctx, what):
     return tuple(values)
 
 
+@dataclasses.dataclass(frozen=True)
+class LookAt:
+    """A Look At controller: the rotation is computed from the target node's position (see Scene)."""
+    position: tuple | None
+    scale: tuple | None
+    target_node: int | None         # Object index of the target node.
+    roll: float = 0.0               # Radians (guess: positive turns the up vector like a positive Z rotation).
+
+
 def _first_reference(obj, ctx):
     ref = ctx.first_ref(obj)
     if ref is None:
@@ -96,6 +107,21 @@ def position_rotation_scale(obj, ctx):
 def key_position(obj, ctx):
     """Position from the value chunk 0x2503."""
     return tuple(_floats(obj.chunk.find(CHUNK_POSITION_VALUE), 3, "position value")[:3])
+
+
+@decoder(0x2006, kind="controller.transform", name="Look At", superclass_id=0x9008)
+def look_at(obj, ctx):
+    """Position and scale controllers and the target node; the scene resolves the rotation."""
+    # Verified: on all 393 corpus nodes with a Look At controller, reference 0 is a node whose object is a "Target"
+    # (flag bit 14), 1 a position controller, 2 a float controller (roll), 3 a scale controller.
+    target = ctx.ref(obj, 0)
+    roll = _sub_value(obj, ctx, 2, "roll", lambda v: isinstance(v, float))
+    return LookAt(
+        position=_sub_value(obj, ctx, 1, "position", _is_vec3),
+        scale=_sub_value(obj, ctx, 3, "scale", _is_vec3),
+        target_node=target.index if target is not None else None,
+        roll=roll or 0.0,
+    )
 
 
 @decoder(0xFFEE238A118F7E02, kind="controller.position", name="Position XYZ", superclass_id=0x900B, verified=True)

@@ -588,6 +588,8 @@ def _param_text(param, scene) -> str:
         shown = ", ".join("[{:d}] {:s}".format(i, scene.objects[i].class_label())
                           if isinstance(i, int) and 0 <= i < len(scene.objects) else "-" for i in items)
         text = "[" + shown + "]" if isinstance(value, list) else shown
+    elif type(value).__name__ == "AssetRef":
+        text = "asset:" + value.guid
     else:
         text = report.format_value(value)
         if isinstance(value, str) or isinstance(value, list) and len(text) > 200:
