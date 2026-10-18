@@ -68,10 +68,16 @@ NODE_CLASS_ID = ClassID(0x1, 0x0)
 NODE_SUPERCLASS_ID = 0x1
 ROOT_NODE_CLASS_ID = ClassID(0x2, 0x0)
 
-# Node flag bits in the second word of 0x0960. Guess, from the names of the nodes that carry them in the corpus:
+# Node flag bits in the second word of 0x0960. Guess, from the names and roles of the nodes that carry them in the
+# corpus (no file pair differing in just that state is available):
 NODE_FLAG_GROUP_HEAD = 1 << 6       # Set on the Dummy heading a group ("tower01", "block-2", ...).
 NODE_FLAG_GROUP_MEMBER = 1 << 8     # Set on members of a group (and on nested group heads).
+# Weak guess: set on context buildings ("existing01"...) and site lines of architectural scenes, rig bones, helpers.
+NODE_FLAG_FROZEN = 1 << 9
 NODE_FLAG_TARGET = 1 << 14          # Set on every "<name>.Target" node of cameras and lights.
+# Set on particle-shape sources, collision helpers, biped nubs and footsteps, proxy boxes of character rigs, the
+# "ceiling" of interiors rendered from inside.
+NODE_FLAG_HIDDEN = 1 << 20
 
 # Chunk types beyond the class directory that are classes of their own (see registry.DERIVED_OBJECT).
 PSEUDO_CLASSES = {
@@ -163,6 +169,16 @@ class Node:
         """A member of a group. Guess (NODE_FLAG_GROUP_MEMBER)."""
         return bool(self.flags & NODE_FLAG_GROUP_MEMBER)
 
+    @property
+    def is_hidden(self) -> bool:
+        """Hidden in the viewports. Guess (NODE_FLAG_HIDDEN): consistent with the roles of the nodes carrying it."""
+        return bool(self.flags & NODE_FLAG_HIDDEN)
+
+    @property
+    def is_frozen(self) -> bool:
+        """Frozen. Weak guess (NODE_FLAG_FROZEN)."""
+        return bool(self.flags & NODE_FLAG_FROZEN)
+
     def local_matrix(self) -> Matrix4:
         """The transform controller's matrix (identity when not decoded)."""
         return self.transform.matrix() if self.transform is not None else IDENTITY
@@ -171,8 +187,8 @@ class Node:
         """
         Product of :meth:`local_matrix` from the root down to this node.
 
-        Unverified (overview.md §4): assumes controller values are relative to the parent node (no reference
-        export in the corpus to check against).
+        Verified (overview.md §4.1): controller values are relative to the parent node; the result reproduces
+        the node matrices the Skin modifier stores for 71 of the 75 skinned nodes of the corpus.
         """
         chain = []
         node = self

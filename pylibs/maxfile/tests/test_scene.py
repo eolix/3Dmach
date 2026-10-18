@@ -115,11 +115,12 @@ def test_node_needs_node_class():
 
 def test_node_flags_and_wire_color():
     b, c = _basic()
-    n = b.obj(c["node"], leaf(0x0960, u32(NULL, (1 << 14) | (1 << 8))), leaf(0x0962, text("Spot01.Target")),
-              leaf(0x0974, bytes((88, 177, 27, 0))))
+    n = b.obj(c["node"], leaf(0x0960, u32(NULL, (1 << 14) | (1 << 8) | (1 << 20))),
+              leaf(0x0962, text("Spot01.Target")), leaf(0x0974, bytes((88, 177, 27, 0))))
     with maxfile.open(b.build()) as mf:
         node = mf.scene.node(n)
         assert node.is_target and node.is_group_member and not node.is_group_head
+        assert node.is_hidden and not node.is_frozen
         assert node.wire_color == (88, 177, 27)
 
 

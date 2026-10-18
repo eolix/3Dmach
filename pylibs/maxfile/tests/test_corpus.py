@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Run the reader and ``maxdump`` on every real ``.max`` file in the local corpus (``tests/corpus/``).
+Run the reader, every decoder and ``maxdump`` on real ``.max`` files of the local corpus (``tests/corpus/``).
 
-This is where the unverified assumptions of ``docs/format/overview.md`` meet real files. The corpus is never
-committed (see ``docs/decisions/0004-local-corpus.md``); without one, the test is skipped.
+The corpus is never committed (see ``docs/decisions/0004-local-corpus.md``); without one, the tests are skipped.
+By default a sample of files spread over the corpus is checked (a few seconds); set ``MX_FULL_CORPUS=1`` to check
+every file (several minutes for the 623 sample files).
 """
 
 import io
@@ -23,13 +24,28 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "tests", "corpus"))
 import corpus  # noqa: E402
 
 CASES, PROBLEMS = corpus.load_corpus()
+FULL = os.environ.get("MX_FULL_CORPUS", "") not in ("", "0")
+SAMPLE_SIZE = 8
+
+
+def _selected():
+    cases = sorted(CASES, key=lambda c: c.name)
+    if FULL or len(cases) <= SAMPLE_SIZE:
+        return cases
+    # Spread over the sorted list, smallest file of each slice (keeps the default run fast).
+    step = len(cases) / SAMPLE_SIZE
+    chosen = []
+    for i in range(SAMPLE_SIZE):
+        part = cases[int(i * step):int((i + 1) * step)]
+        chosen.append(min(part, key=lambda c: os.path.getsize(c.path)))
+    return chosen
 
 
 def _params():
     if not CASES:
         return [pytest.param(None, marks=pytest.mark.skip(reason="no .max files in " + corpus.corpus_dir()))]
     params = []
-    for case in CASES:
+    for case in _selected():
         marks = []
         if case.expected == "skip":
             marks.append(pytest.mark.skip(reason="manifest: expected = skip"))
@@ -47,6 +63,11 @@ def test_corpus_file(case):
         mf.class_usage()
         for node in mf.nodes:
             node.world_matrix()
+            base, modifiers = mf.scene.resolve_geometry(node)
+            for obj in [base, node.material, *modifiers]:
+                mf.scene.decode(obj)
+        for obj in mf.objects:
+            mf.scene.param_block(obj)
         data = dump.summary(mf)
         assert data["objects"] == len(mf.objects)
         # Print what was found, so `pytest -s` shows it next to the result.

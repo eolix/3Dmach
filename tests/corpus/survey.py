@@ -10,10 +10,10 @@ Usage::
 
     python3 tests/corpus/survey.py [--jobs N] [--limit N] [--json OUT.json] [CORPUS_DIR]
 
-For each file: whether it opens (or the error), its streams and which are compressed, class and node counts,
-classes the registry doesn't know, and what the decoders made of geometry, primitives, modifier stacks and
-materials. The summary aggregates those across the corpus; ``--json`` keeps the per-file records for later
-investigation with ``maxdump``.
+For each file: whether it opens (or the error), its streams, Max release and units, class and node counts,
+classes the registry doesn't know, what each node's object decodes to (through modifier stacks: the base object,
+plus the stack's modifiers and what they decode to) and what node materials decode to. The summary aggregates
+those across the corpus; ``--json`` keeps the per-file records for later investigation with ``maxdump``.
 """
 
 import argparse
@@ -48,20 +48,40 @@ def survey_file(path):
             record["nodes"] = len(scene.nodes)
             record["classes"] = len(mf.class_directory.entries) if hasattr(mf.class_directory, "entries") else None
             record["unknown_classes"] = [(u.entry.label(), u.count) for u in mf.unknown_classes()]
+            record["max_release"] = getattr(mf, "max_release", None)
+            units = getattr(mf, "units", None)
+            record["units"] = units.unit if units is not None else None
             kinds = collections.Counter()
+            modifiers = collections.Counter()
+            materials = collections.Counter()
             decode_errors = collections.Counter()
+
+            def label(obj, decoded):
+                return type(decoded).__name__ if decoded is not None else "undecoded:" + obj.class_label()
+
             for node in scene.nodes:
                 obj = node.object
                 if obj is None:
                     kinds["(none)"] += 1
                     continue
                 try:
-                    decoded = scene.decode(obj)
+                    if hasattr(scene, "resolve_geometry"):
+                        base, mods = scene.resolve_geometry(node)
+                        for mod in mods:
+                            modifiers[mod.class_label() + " -> " + label(mod, scene.decode(mod))] += 1
+                        if base is None:
+                            kinds["(stack without base)"] += 1
+                            continue
+                        obj = base
+                    kinds[label(obj, scene.decode(obj))] += 1
+                    if node.material is not None:
+                        materials[label(node.material, scene.decode(node.material))] += 1
                 except Exception as ex:  # Should never happen: decoders report problems as warnings.
                     decode_errors[type(ex).__name__] += 1
                     continue
-                kinds[type(decoded).__name__ if decoded is not None else "undecoded:" + obj.class_label()] += 1
             record["node_objects"] = dict(kinds)
+            record["modifiers"] = dict(modifiers)
+            record["node_materials"] = dict(materials)
             record["decode_exceptions"] = dict(decode_errors)
             record["warnings"] = len(mf.warnings)
             record["warning_samples"] = list(mf.warnings[:5])
@@ -89,11 +109,19 @@ def summarise(records):
     streams = collections.Counter(s for r in ok for s in r["streams"])
     lines.append("\nStreams (files containing them):")
     lines.extend("  {:5d}  {:s}".format(n, s) for s, n in streams.most_common(30))
-    kinds = collections.Counter()
-    for r in ok:
-        kinds.update(r["node_objects"])
-    lines.append("\nWhat node objects decoded to (all files):")
-    lines.extend("  {:7d}  {:s}".format(n, k) for k, n in kinds.most_common(40))
+    for key, title in (("max_release", "Max release x 1000"), ("units", "System units")):
+        values = collections.Counter(str(r.get(key)) for r in ok)
+        lines.append("\n{:s}: ".format(title) + ", ".join("{:s} {:d}".format(k, n) for k, n in values.most_common()))
+    for key, title in (("node_objects", "What node objects decode to, through modifier stacks (all files)"),
+                       ("modifiers", "Modifiers on node stacks -> decoded as"),
+                       ("node_materials", "Node materials decode to")):
+        kinds = collections.Counter()
+        for r in ok:
+            kinds.update(r.get(key, {}))
+        lines.append("\n{:s}: {:d} total".format(title, sum(kinds.values())))
+        lines.extend("  {:7d}  {:s}".format(n, k) for k, n in kinds.most_common(40))
+    lines.append("\nWarnings: {:d} in {:d} files".format(sum(r["warnings"] for r in ok),
+                                                         sum(1 for r in ok if r["warnings"])))
     unknown = collections.Counter()
     unknown_files = collections.Counter()
     for r in ok:
