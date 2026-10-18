@@ -26,6 +26,7 @@ __all__ = (
 
 import array
 import dataclasses
+import math
 import os
 
 import bpy
@@ -104,6 +105,8 @@ class SceneBuilder:
         self._physical_lights = 0       # Lights in physical units (photometric, sun systems).
         self._material_cache = {}       # material object index -> list of Blender materials (slots)
         self._built_materials = {}      # material object index -> Blender material
+        self._curve_cache = {}          # (shape object index, Edit Splines, offset key) -> Curve
+        self._uv_meshes = {}            # (mesh name, UV modifier objects) -> Mesh with those UVs
         self.objects = {}               # node index -> Blender object
 
     # Units.
@@ -167,7 +170,7 @@ class SceneBuilder:
             return
         obj, desc = self.cameras[0]
         scene.camera = obj
-        if desc.exposure_value is not None and self._physical_lights:
+        if desc.exposure_value is not None and self._physical_lights and not self._world_directions:
             scene.view_settings.exposure = lights.exposure_from_ev(desc.exposure_value)
             self.note(obj.name, "Physical camera exposure EV {:g} set as the scene exposure ({:+.2f})".format(
                 desc.exposure_value, scene.view_settings.exposure))
@@ -193,11 +196,10 @@ class SceneBuilder:
         decoded = scene.decode(target) if target is not None else None
         kind = _kind(decoded)
 
-        # Modifier stacks (possibly nested wrappers): the base geometry plus modifiers, top of the stack first.
+        # Modifier stacks (possibly nested wrappers): the base geometry plus modifiers, bottom of the stack first.
         stack = None
         if kind == "ModifierStack":
-            base, modifiers = scene.resolve_geometry(node)
-            stack = list(reversed(modifiers))       # Bottom (applied first) to top.
+            base, stack = self._stack_entries(scene, node)
             target = base
             decoded = scene.decode(base) if base is not None else None
             kind = _kind(decoded)
@@ -206,6 +208,8 @@ class SceneBuilder:
         if kind in {"MeshData", "PrimitiveData"}:
             obj = self._new_object(name, self._mesh_for(target.index, decoded, node, name))
             self.report.add_imported("objects")
+        elif kind == "ShapeData":
+            obj, stack = self._build_shape(scene, node, name, target, decoded, stack or [])
         elif kind in {"LightData", "CameraData"}:
             obj = self._build_light_or_camera(name, decoded)
         if obj is None:
@@ -225,12 +229,67 @@ class SceneBuilder:
                 self.report.add_imported("empties")
 
         if obj.type == 'MESH':
-            if stack is not None:
-                self._build_stack(obj, scene, stack)
+            if stack:
+                self._build_stack(obj, scene, node, stack)
             if self.settings.import_materials and node.material is not None:
                 self._assign_materials(obj, scene, node.material, decoded)
+        elif obj.type == 'CURVE':
+            if self.settings.import_materials and node.material is not None:
+                sub_ids, mats = self._blender_materials(scene, node.material)
+                if mats and not obj.data.materials:
+                    obj.data.materials.append(mats[0])
         obj["mx_node_index"] = node.index
         return obj
+
+    # Modifier stacks.
+
+    def _stack_entries(self, scene, node):
+        """
+        ``(base object, [(modifier object, ModifierRef or None, context data chunk or None)])`` for a node, the
+        modifiers bottom of the stack first, through nested derived objects.
+        """
+        entries = []        # Top of the stack first, as stored.
+        obj = node.object
+        seen = set()
+        while obj is not None and obj.index not in seen:
+            seen.add(obj.index)
+            value = scene.decode(obj)
+            if _kind(value) != "ModifierStack":
+                break
+            contexts = obj.chunk.find_all(0x2500)
+            if len(contexts) != len(value.modifiers):
+                contexts = [None] * len(value.modifiers)
+            for ref, chunk in zip(value.modifiers, contexts):
+                data = chunk.find(0x2512) if chunk is not None and chunk.is_container else None
+                entries.append((scene.objects[ref.object_index], ref, data))
+            obj = scene.objects[value.base] if value.base is not None else None
+        if obj is not None and _kind(scene.decode(obj)) == "ModifierStack":
+            obj = None
+        return obj, list(reversed(entries))
+
+    def _mod_context(self, scene, mod_obj, decoded, ref, data, to_object):
+        from .modifiers import convert as modifier_convert
+        ctx = modifier_convert.ModContext(unit_scale=self.unit_scale, to_object=to_object, data=data)
+        if ref is not None:
+            ctx.context_tm = ref.context_tm
+            ctx.bbox = ref.context_bbox
+        gizmo_index = getattr(decoded, "gizmo", None)
+        if gizmo_index is not None:
+            gizmo = scene.decode(scene.objects[gizmo_index])
+            if _kind(gizmo) == "Transform":
+                ctx.gizmo = gizmo
+        if modifier_convert.converter_key(mod_obj.class_label()) in {"Bend", "Twist", "Taper"}:
+            center = scene.ref(mod_obj, 1)
+            value = scene.decode(center) if center is not None else None
+            if isinstance(value, tuple) and len(value) == 3:
+                ctx.center = value
+        ctx.display_name = getattr(decoded, "name", None)
+        return ctx
+
+    def _to_object(self, node):
+        """Mesh coordinates to Max object space (scene units): the inverse of the baked offset and unit scale."""
+        offset = _matrix(node.object_offset.matrix())
+        return (self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4)).inverted_safe()
 
     def _build_light_or_camera(self, name, decoded):
         from . import lights
@@ -422,20 +481,232 @@ class SceneBuilder:
         mesh["mx_material_ids"] = [i + 1 for i in data.material_ids]
         return mesh
 
-    def _build_stack(self, obj, scene, modifiers):
-        """Add Max modifiers (scene objects, bottom of the stack first) as Blender modifiers."""
+    def _build_stack(self, obj, scene, node, entries):
+        """Add Max modifiers (``_stack_entries``, bottom of the stack first) as Blender modifiers."""
         from .modifiers import convert as modifier_convert
-        for mod_obj in modifiers:
+        to_object = self._to_object(node)
+        uv_keys = tuple(m.index for m, _r, _d in entries
+                        if modifier_convert.converter_key(m.class_label()) in {"UVW_Map", "Unwrap_UVW"})
+        if uv_keys:
+            # The modifiers write UVs into the mesh: instances with the same UV modifiers share one copy.
+            key = (obj.data.name, uv_keys)
+            shared = self._uv_meshes.get(key)
+            if shared is not None:
+                obj.data = shared
+            else:
+                obj.data = obj.data.copy()
+                self._uv_meshes[key] = obj.data
+        uv_done = bool(uv_keys) and list(obj.data.get("mx_uv_from", [])) == list(uv_keys)
+        for mod_obj, ref, data in entries:
             class_name = mod_obj.class_label()
             decoded = scene.decode(mod_obj)
             params = dict(getattr(decoded, "params", None) or {})
-            if modifier_convert.add_modifier(obj, class_name, params, enabled=getattr(decoded, "enabled", None)):
+            key = modifier_convert.converter_key(class_name)
+            if uv_done and key in {"UVW_Map", "Unwrap_UVW"}:
+                self.report.add_imported("modifiers")
+                continue
+            ctx = self._mod_context(scene, mod_obj, decoded, ref, data, to_object)
+            result = modifier_convert.add_modifier(obj, class_name, params, enabled=getattr(decoded, "enabled", None),
+                                                   ctx=ctx)
+            for text in ctx.notes:
+                self.note(obj.name, "{:s}: {:s}".format(class_name, text))
+            if result == modifier_convert.SKIPPED:
+                self.report.add_imported("modifiers left out")
+            elif result:
                 self.report.add_imported("modifiers")
             else:
                 self.report.add_unsupported("modifier", class_name)
                 break   # Import the stack up to the unsupported modifier (ROADMAP Phase 2d).
+        if uv_keys:
+            obj.data["mx_uv_from"] = list(uv_keys)
         if not self.settings.keep_modifier_stack:
             modifier_convert.collapse(obj)
+
+    # Shapes.
+
+    def _build_shape(self, scene, node, name, target, shape, entries):
+        """
+        A shape node: a curve, or a mesh when an Extrude / Lathe at the bottom of its stack turns it into one.
+        Returns ``(object, remaining stack entries)``.
+        """
+        from . import shapes
+        from .modifiers import convert as modifier_convert
+        splines = shape.splines
+        index = 0
+        edited = []
+        while index < len(entries) and modifier_convert.converter_key(entries[index][0].class_label()) == "Edit_Spline":
+            mod_obj, _ref, data = entries[index]
+            stored = self._edit_spline_result(data)
+            if stored is None:
+                self.note(name, "Edit Spline result not readable: the shape below it is used")
+            else:
+                splines = stored
+            edited.append(mod_obj.index)
+            self.report.add_imported("modifiers")
+            index += 1
+        offset = _matrix(node.object_offset.matrix())
+        key = (target.index, tuple(edited), tuple(round(v, 6) for row in offset for v in row))
+        steps = shape.steps if shape.steps is not None else 6
+        if index < len(entries):
+            mod_obj, ref, data = entries[index]
+            gen = modifier_convert.converter_key(mod_obj.class_label())
+            if gen in {"Extrude", "Lathe"}:
+                mesh_key = key + (mod_obj.index,)
+                mesh = self._mesh_cache.get(mesh_key)
+                if mesh is not None:
+                    self.report.add_imported("instances")
+                    obj = self._new_object(name, mesh)
+                else:
+                    raw = self._raw_params(scene, mod_obj,
+                                           shapes.EXTRUDE_SLOT if gen == "Extrude" else shapes.LATHE_SLOT)
+                    if gen == "Extrude":
+                        obj = self._extrude(name, splines, raw, steps, node)
+                    else:
+                        obj = self._lathe(name, splines, raw, steps, node, scene, mod_obj, ref, data)
+                    self._mesh_cache[mesh_key] = obj.data
+                    self.report.add_imported("meshes")
+                self.report.add_imported("objects")
+                self.report.add_imported("modifiers")
+                return obj, entries[index + 1:]
+        curve = self._curve_cache.get(key)
+        if curve is None:
+            curve = self._curve(name, shape, splines, steps)
+            curve.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
+            self._curve_cache[key] = curve
+            self.report.add_imported("shapes")
+        else:
+            self.report.add_imported("instances")
+        obj = self._new_object(name, curve)
+        for mod_obj, _ref, _data in entries[index:]:
+            label = mod_obj.class_label()
+            if modifier_convert.converter_key(label) in {"UVW_Map", "Attribute_Holder"}:
+                continue    # No effect on a curve.
+            self.report.add_unsupported("modifier", label)
+            break
+        return obj, []
+
+    def _raw_params(self, scene, mod_obj, slot):
+        ref = scene.ref(mod_obj, slot)
+        block = scene.param_block(ref) if ref is not None else None
+        if block is None:
+            return {}
+        return {pid: param.value for pid, param in block.params.items()}
+
+    @staticmethod
+    def _edit_spline_result(data):
+        """The splines an Edit Spline stores for its node (``0x2512`` > ``0x1000`` > ``0x1040`` Bezier shape)."""
+        if data is None:
+            return None
+        try:
+            from maxfile.objects.shapes import read_bezier_shape
+            from maxfile.errors import MaxFileError
+        except ImportError:
+            return None
+        holder = data.find(0x1000)
+        bezier = holder.find(0x1040) if holder is not None and holder.is_container else None
+        if bezier is None or not bezier.is_container:
+            return None
+        try:
+            splines = read_bezier_shape(bezier)
+        except MaxFileError:
+            return None
+        return splines or None
+
+    def _curve(self, name, shape, splines, steps):
+        """A Bezier curve datablock (scene units) from shape splines."""
+        from . import shapes
+        curve = bpy.data.curves.new(name, 'CURVE')
+        curve.dimensions = '3D'
+        curve.resolution_u = max(1, min(64, steps + 1))
+        curve.render_resolution_u = curve.resolution_u
+        for spline in splines:
+            knots = spline.knots
+            if not knots:
+                continue
+            sp = curve.splines.new('BEZIER')
+            sp.bezier_points.add(len(knots) - 1)
+            sp.use_cyclic_u = spline.closed
+            for point, knot in zip(sp.bezier_points, knots):
+                point.handle_left_type = point.handle_right_type = 'FREE'
+                point.co = knot.position
+                point.handle_left = knot.in_handle
+                point.handle_right = knot.out_handle
+                if knot.knot_type in shapes.SMOOTH_KNOTS:
+                    point.handle_left_type = point.handle_right_type = 'ALIGNED'
+        rendering = shape.rendering
+        if rendering is not None and (rendering.renderable or rendering.display_render_mesh):
+            thickness = rendering.thickness
+            sides = rendering.sides
+            if rendering.use_viewport_settings and rendering.display_render_mesh and not rendering.renderable:
+                thickness, sides = rendering.viewport_thickness, rendering.viewport_sides
+            if rendering.rectangular:
+                thickness = max(rendering.rectangular_length, rendering.rectangular_width)
+                self.note(name, "rectangular spline rendering imported as a round bevel")
+            curve.bevel_mode = 'ROUND'
+            curve.bevel_depth = thickness / 2.0      # Scene units: the curve is scaled with its points.
+            curve.bevel_resolution = max(0, int(round(sides / 4.0)) - 1)
+            curve.use_fill_caps = True
+            if not rendering.renderable:
+                self.note(name, "spline shown with thickness in the viewport only: rendered too")
+        curve["mx_shape_kind"] = shape.kind
+        return curve
+
+    def _extrude(self, name, splines, raw, steps, node):
+        from mathutils.geometry import tessellate_polygon
+        from . import mesh_build, shapes, smoothing
+        p = {key: raw[pid] for pid, key in shapes.EXTRUDE_PARAMS.items() if pid in raw}
+        positions, faces, mat_ids, groups, sharp = shapes.extrude_mesh(
+            splines, float(p.get("amount", 0.0)), int(p.get("segments", 1) or 1),
+            bool(p.get("cap_start", 1)), bool(p.get("cap_end", 1)), steps, tessellate=tessellate_polygon)
+        sharp_edges, sharp_faces = smoothing.sharp_from_smoothing_groups(faces, groups)
+        sharp_edges |= sharp
+        mesh = mesh_build.build_mesh(name, positions, faces, sharp_edges=sharp_edges, sharp_faces=sharp_faces)
+        mesh["mx_material_ids"] = mat_ids if p.get("generate_material_ids", 1) else [1] * len(faces)
+        offset = _matrix(node.object_offset.matrix())
+        mesh.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
+        return self._new_object(name, mesh)
+
+    def _lathe(self, name, splines, raw, steps, node, scene, mod_obj, ref, data):
+        from . import mesh_build, shapes
+        from .modifiers import convert as modifier_convert
+        p = {key: raw[pid] for pid, key in shapes.LATHE_PARAMS.items() if pid in raw}
+        positions, edges = [], []
+        for spline in splines:
+            pts, _owners = shapes.polyline(spline, steps)
+            base = len(positions)
+            positions.extend(pts)
+            n = len(pts)
+            count = n if spline.closed and n > 2 else n - 1
+            edges.extend((base + i, base + (i + 1) % n) for i in range(count))
+        mesh = mesh_build.build_mesh(name, positions, [], edges=edges)
+        offset = _matrix(node.object_offset.matrix())
+        mesh.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
+        obj = self._new_object(name, mesh)
+        mod = obj.modifiers.new("Lathe", 'SCREW')
+        mod.angle = math.radians(p.get("degrees", 360.0))
+        segments = int(p.get("segments", 16) or 16)
+        mod.steps = mod.render_steps = max(segments, 2)
+        mod.screw_offset = 0.0
+        mod.use_merge_vertices = bool(p.get("weld_core", 0))
+        mod.merge_threshold = 0.001 * self.unit_scale
+        mod.use_normal_calculate = True
+        mod.use_smooth_shade = True
+        mod.axis = 'Z'
+        decoded = scene.decode(mod_obj)
+        gizmo_ref = scene.ref(mod_obj, shapes.LATHE_GIZMO_SLOT)
+        ctx = modifier_convert.ModContext(unit_scale=self.unit_scale, to_object=self._to_object(node))
+        if ref is not None:
+            ctx.context_tm = ref.context_tm
+        gizmo = scene.decode(gizmo_ref) if gizmo_ref is not None else None
+        if _kind(gizmo) == "Transform":
+            ctx.gizmo = gizmo
+        axis = modifier_convert._gizmo_empty(obj, "Lathe", ctx)
+        if axis is not None:
+            mod.object = axis
+        if p.get("degrees", 360.0) < 360.0 and (p.get("cap_start") or p.get("cap_end")):
+            self.note(name, "Lathe caps of a partial revolution are not generated")
+        del decoded
+        return obj
 
     # Materials.
 

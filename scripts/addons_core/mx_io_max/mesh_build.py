@@ -27,6 +27,7 @@ def build_mesh(
         material_indices=None,
         sharp_edges=None,
         sharp_faces=None,
+        edges=(),
 ):
     """
     Create a mesh datablock.
@@ -37,6 +38,7 @@ def build_mesh(
     :arg material_indices: One material slot index per face, or None.
     :arg sharp_edges: Iterable of ``(v1, v2)`` vertex pairs to mark sharp, or None.
     :arg sharp_faces: One bool per face (True = flat shaded), or None to shade every face smooth.
+    :arg edges: Loose edges as ``(v1, v2)`` pairs (for wire meshes such as Lathe profiles).
     :return: The new ``bpy.types.Mesh``.
     """
     corner_count = sum(len(face) for face in faces)
@@ -59,6 +61,9 @@ def build_mesh(
     mesh.loops.foreach_set("vertex_index", corner_verts)
     mesh.polygons.add(len(faces))
     mesh.polygons.foreach_set("loop_start", loop_starts)
+    if edges:
+        mesh.edges.add(len(edges))
+        mesh.edges.foreach_set("vertices", array.array("i", (v for edge in edges for v in edge)))
 
     for layer_name, uvs in uv_layers:
         layer = mesh.uv_layers.new(name=layer_name, do_init=False)

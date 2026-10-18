@@ -49,8 +49,10 @@ PHOTOMETRIC = {"Free_Light", "Target_Light", "Free_Point", "Target_Point", "Free
 STANDARD_OMNI = {"Omnilight"}
 STANDARD_SPOT = {"Targetspot", "Freespot"}
 STANDARD_DIRECT = {"TargetDirectionallight", "Directionallight"}
-# Lights in physical units, for which the Physical camera's exposure value is meaningful.
-PHYSICAL_CLASSES = PHOTOMETRIC | {"Sun_Positioner"}
+# Lights in physical units, for which the Physical camera's exposure value is meaningful. Sun systems are not:
+# the sun lamp's strength is tuned for exposure 0 (and the file doesn't say whether Max's exposure control used
+# the camera's EV).
+PHYSICAL_CLASSES = PHOTOMETRIC
 
 
 @dataclasses.dataclass
