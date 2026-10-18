@@ -43,9 +43,10 @@ def count(items):
 class Imported:
     """Summary of the scene after one import."""
 
-    def __init__(self, path):
+    def __init__(self, path, addons=()):
         bpy.ops.wm.read_factory_settings(use_empty=True)
-        addon_utils.enable("mx_io_max", default_set=True)
+        for name in (*addons, "mx_io_max"):
+            addon_utils.enable(name, default_set=True)
         start = time.monotonic()
         self.result = bpy.ops.import_scene.mx_max(filepath=path)
         self.seconds = time.monotonic() - start
@@ -66,11 +67,11 @@ class Imported:
 
 class CorpusImportTest(unittest.TestCase):
 
-    def scene(self, relpath):
+    def scene(self, relpath, addons=()):
         path = corpus_file(relpath)
         if path is None:
             self.skipTest("corpus file not available (set MX_CORPUS_DIR): " + relpath)
-        imported = Imported(path)
+        imported = Imported(path, addons)
         self.assertEqual(imported.result, {'FINISHED'})
         self.assertGreater(len(imported.objects), 0)
         print("{:s}: {:.1f} s, {:d} objects".format(relpath, imported.seconds, len(imported.objects)))
@@ -151,6 +152,18 @@ class CorpusImportTest(unittest.TestCase):
         self.assertEqual(s.modifiers['SCREW'], 3)
         self.assertEqual(s.world_nodes['BACKGROUND'], 1)
         self.assertEqual(len(s.meshes), 102)
+
+    def test_live_extended_primitives(self):
+        s = self.scene("Scenes/CameraMap/wall.max", addons=("mx_primitives",))
+        import mx_primitives
+        kinds = count(mx_primitives.get_parameters(o)[0] for o in s.meshes)
+        self.assertEqual(kinds['CHAMFERBOX'], 10)
+        self.assertEqual(kinds['CHAMFERCYL'], 2)
+        self.assertEqual(kinds['TUBE'], 75)
+        box = bpy.data.objects["ChamferBox01"]
+        # Live parameters in metres (the scene is in inches): 27.8 x 3.66 x 2.83 in.
+        self.assertAlmostEqual(mx_primitives.get_parameters(box)[1]["width"], 0.706, places=3)
+        self.assertNotIn("rebuilt as a", s.report)
 
     def test_edit_spline_extrude_crowd(self):
         s = self.scene("Scenes/Crowd/MotionClips/ButterflyLandingBig.max")

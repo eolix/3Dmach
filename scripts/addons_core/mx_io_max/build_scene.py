@@ -465,8 +465,12 @@ class SceneBuilder:
             return bpy.data.meshes.new(name), False
         registered = hasattr(bpy.types.Mesh, "mx_primitive") and hasattr(mx_primitives, "create_primitive_object")
         live = live and registered
+        decoded_params = dict(data.params)
+        if not decoded_params:
+            # Kinds maxfile doesn't map onto the builder (Teapot) keep their values in extra_params.
+            decoded_params = dict(getattr(data, "extra_params", None) or {})
         kind, params, notes = primitive_convert.builder_params(
-            data.kind, dict(data.params), geometry.PARAMETERS, self.unit_scale if live else 1.0)
+            data.kind, decoded_params, geometry.PARAMETERS, self.unit_scale if live else 1.0)
         for note in notes:
             self.note(name, note)
         if kind is None:
