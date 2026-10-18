@@ -59,7 +59,8 @@ class Imported:
         self.frozen = sum(bool(o.get("mx_frozen")) for o in self.objects)
         self.shader_nodes = count(n.type for m in bpy.data.materials if m.node_tree for n in m.node_tree.nodes)
         world = bpy.context.scene.world
-        self.world_nodes = count(n.type for n in world.node_tree.nodes) if world and world.node_tree else collections.Counter()
+        has_tree = world is not None and world.node_tree is not None
+        self.world_nodes = count(n.type for n in world.node_tree.nodes) if has_tree else collections.Counter()
         self.report = bpy.data.texts["Import Report"].as_string()
 
 
