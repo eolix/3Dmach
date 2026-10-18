@@ -139,8 +139,11 @@ def test_no_blender_imports():
 
 
 def test_kinds():
-    assert set(geometry.KIND_IDS) == {
-        "BOX", "SPHERE", "GEOSPHERE", "CYLINDER", "TUBE", "CONE", "TORUS", "PYRAMID", "PLANE", "TEST_SHAPE"}
+    # The order numbers the kinds stored in .blend files: new kinds are only ever appended.
+    assert geometry.KIND_IDS == (
+        "BOX", "SPHERE", "GEOSPHERE", "CYLINDER", "TUBE", "CONE", "TORUS", "PYRAMID", "PLANE", "TEST_SHAPE",
+        "CHAMFERBOX", "CHAMFERCYL", "CAPSULE", "OILTANK", "SPINDLE", "GENGON", "PRISM", "L_EXT", "C_EXT",
+        "TORUS_KNOT", "HEDRA")
 
 
 def test_parameter_types_consistent():
@@ -157,7 +160,7 @@ def test_parameter_types_consistent():
 @pytest.mark.parametrize("kind", geometry.KIND_IDS)
 def test_defaults_generate(kind):
     data = geometry.generate(kind)
-    check_mesh(data, closed=kind != "PLANE", uv_range=GEO_UV_RANGE if kind == "GEOSPHERE" else (0.0, 1.0))
+    check_mesh(data, closed=kind != "PLANE", uv_range=GEO_UV_RANGE if kind in ("GEOSPHERE", "HEDRA") else (0.0, 1.0))
 
 
 def test_normalize_params():

@@ -61,6 +61,26 @@ _ENUM_ITEMS = {
         ('NONE', "None", "No smoothing: faceted", 2),
         ('SEGMENTS', "Segments", "Smooth each segment on its own: ring-shaped facets", 3),
     ],
+    "height_type": [
+        ('OVERALL', "Overall", "The height is that of the whole object, caps included", 0),
+        ('CENTERS', "Centers", "The height is that of the cylinder between the caps", 1),
+    ],
+    "base_curve": [
+        ('KNOT', "Knot", "A (P, Q) torus knot", 0),
+        ('CIRCLE', "Circle", "A circle, optionally warped", 1),
+    ],
+    "family": [
+        ('TETRA', "Tetra", "Tetrahedron family", 0),
+        ('CUBE_OCTA', "Cube/Octa", "Cube and octahedron family", 1),
+        ('DODEC_ICOS', "Dodec/Icos", "Dodecahedron and icosahedron family", 2),
+        ('STAR1', "Star1", "Star from the icosahedron", 3),
+        ('STAR2', "Star2", "Star from the dodecahedron", 4),
+    ],
+    "vertex_mode": [
+        ('BASIC', "Basic", "No vertices beyond the polyhedron's corners (unless axis scaling needs face centres)", 0),
+        ('CENTER', "Center", "Add a vertex at the centre of each face", 1),
+        ('CENTER_SIDES', "Center & Sides", "Add vertices at the centre and the edge midpoints of each face", 2),
+    ],
 }
 
 _DISTANCE = {"subtype": 'DISTANCE', "unit": 'LENGTH'}
@@ -119,12 +139,62 @@ _PARAMETER_DEFINITIONS = {
     "part_handle": _bool("Handle", "Include the handle"),
     "part_spout": _bool("Spout", "Include the spout"),
     "part_lid": _bool("Lid", "Include the lid"),
+    # Extended primitives.
+    "fillet": _size("Fillet", "Radius of the rounded edges"),
+    "fillet_segments": _int("Fillet Segments", "Number of divisions around the rounded edges", 1),
+    "cap_height": _size("Cap Height", "Height of each cap"),
+    "blend": _size("Blend", "Size of the bevel between the caps and the cylinder"),
+    "side_segments": _int("Side Segments", "Number of divisions along each side (side leg)", 1),
+    "side1_length": _size("Side 1 Length", "Length of side 1 (along the local X axis)"),
+    "side2_length": _size("Side 2 Length", "Length of side 2"),
+    "side3_length": _size("Side 3 Length", "Length of side 3"),
+    "side1_segments": _int("Side 1 Segments", "Number of divisions of side 1", 1),
+    "side2_segments": _int("Side 2 Segments", "Number of divisions of side 2", 1),
+    "side3_segments": _int("Side 3 Segments", "Number of divisions of side 3", 1),
+    "back_length": _size("Back Length", "Length of the back leg (along the local X axis)", signed=True),
+    "side_length": _size("Side Length", "Length of the side leg (along the local Y axis)", signed=True),
+    "front_length": _size("Front Length", "Length of the front leg (along the local X axis)", signed=True),
+    "back_width": _size("Back Width", "Thickness of the back leg"),
+    "side_width": _size("Side Width", "Thickness of the side leg"),
+    "front_width": _size("Front Width", "Thickness of the front leg"),
+    "back_segments": _int("Back Segments", "Number of divisions along the back leg", 1),
+    "front_segments": _int("Front Segments", "Number of divisions along the front leg", 1),
+    "p": (FloatProperty, {"name": "P", "description": "Number of turns around the axis", "min": 1.0, "max": 100.0,
+                          "soft_max": 25.0}),
+    "q": (FloatProperty, {"name": "Q", "description": "Number of turns around the core circle", "min": 1.0,
+                          "max": 100.0, "soft_max": 25.0}),
+    "warp_count": (FloatProperty, {"name": "Warp Count", "description": "Number of bulges around the curve",
+                                   "min": 0.0, "max": 100.0}),
+    "warp_height": (FloatProperty, {"name": "Warp Height", "description": "Height of the bulges, relative to the "
+                                    "radius", "min": -0.95, "max": 10.0}),
+    "cross_section_radius": _size("Radius", "Radius of the cross-section"),
+    "eccentricity": (FloatProperty, {"name": "Eccentricity", "description": "Ratio between the cross-section's axes",
+                                     "min": 0.01, "max": 100.0, "soft_max": 10.0}),
+    "lumps": (FloatProperty, {"name": "Lumps", "description": "Number of lumps along the knot", "min": 0.0,
+                              "max": 100.0}),
+    "lump_height": (FloatProperty, {"name": "Lump Height", "description": "Height of the lumps, relative to the "
+                                    "cross-section radius", "min": -0.95, "max": 10.0}),
+    "lump_offset": (FloatProperty, {"name": "Lump Offset", "description": "Shift of the lumps along the knot",
+                                    **_ANGLE}),
+    "family_p": (FloatProperty, {"name": "P", "description": "Family parameter P: towards the dual polyhedron",
+                                 "min": 0.0, "max": 1.0, "subtype": 'FACTOR'}),
+    "family_q": (FloatProperty, {"name": "Q", "description": "Family parameter Q: towards the vertices at the edge "
+                                 "midpoints", "min": 0.0, "max": 1.0, "subtype": 'FACTOR'}),
+    "axis_scale_p": (FloatProperty, {"name": "Axis Scale P", "description": "Push the centres of the P faces "
+                                     "(percent)", "min": 0.0, "max": 1000.0, "soft_max": 300.0}),
+    "axis_scale_q": (FloatProperty, {"name": "Axis Scale Q", "description": "Push the centres of the Q faces "
+                                     "(percent)", "min": 0.0, "max": 1000.0, "soft_max": 300.0}),
+    "axis_scale_r": (FloatProperty, {"name": "Axis Scale R", "description": "Push the centres of the R faces "
+                                     "(percent)", "min": 0.0, "max": 1000.0, "soft_max": 300.0}),
 }
 for _name, _items in _ENUM_ITEMS.items():
     _PARAMETER_DEFINITIONS[_name] = (EnumProperty, {"name": _name.replace("_", " ").title(), "items": _items})
 _PARAMETER_DEFINITIONS["base_type"][1]["name"] = "Geodesic Base Type"
 _PARAMETER_DEFINITIONS["hemisphere_mode"][1]["name"] = "Hemisphere Mode"
 _PARAMETER_DEFINITIONS["smooth_mode"][1]["name"] = "Smooth"
+_PARAMETER_DEFINITIONS["height_type"][1]["name"] = "Height Type"
+_PARAMETER_DEFINITIONS["base_curve"][1]["name"] = "Base Curve"
+_PARAMETER_DEFINITIONS["vertex_mode"][1]["name"] = "Vertices"
 
 PARAMETER_NAMES = tuple(_PARAMETER_DEFINITIONS)
 

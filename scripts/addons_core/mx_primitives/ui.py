@@ -80,9 +80,90 @@ LAYOUT = {
         None, ("part_body", "Body"), ("part_handle", "Handle"), ("part_spout", "Spout"), ("part_lid", "Lid"),
         None, _UVS,
     ),
+    # Extended primitives.
+    "CHAMFERBOX": (
+        ("length", "Length"), ("width", "Width"), ("height", "Height"), ("fillet", "Fillet"),
+        ("length_segments", "Length Segs"), ("width_segments", "Width Segs"), ("height_segments", "Height Segs"),
+        ("fillet_segments", "Fillet Segs"),
+        None, ("smooth", "Smooth"), _UVS,
+    ),
+    "CHAMFERCYL": (
+        ("radius", "Radius"), ("height", "Height"), ("fillet", "Fillet"),
+        ("height_segments", "Height Segs"), ("fillet_segments", "Fillet Segs"), ("sides", "Sides"),
+        ("cap_segments", "Cap Segs"),
+        None, ("smooth", "Smooth"), *_SLICE,
+        None, _UVS,
+    ),
+    "CAPSULE": (
+        ("radius", "Radius"), ("height", "Height"), ("height_type", "", "EXPAND"),
+        ("sides", "Sides"), ("height_segments", "Height Segs"),
+        None, ("smooth", "Smooth"), *_SLICE,
+        None, _UVS,
+    ),
+    "OILTANK": (
+        ("radius", "Radius"), ("height", "Height"), ("cap_height", "Cap Height"), ("height_type", "", "EXPAND"),
+        ("blend", "Blend"), ("sides", "Sides"), ("height_segments", "Height Segs"),
+        None, ("smooth", "Smooth"), *_SLICE,
+        None, _UVS,
+    ),
+    "SPINDLE": (
+        ("radius", "Radius"), ("height", "Height"), ("cap_height", "Cap Height"), ("height_type", "", "EXPAND"),
+        ("blend", "Blend"), ("sides", "Sides"), ("cap_segments", "Cap Segs"), ("height_segments", "Height Segs"),
+        None, ("smooth", "Smooth"), *_SLICE,
+        None, _UVS,
+    ),
+    "GENGON": (
+        ("sides", "Sides"), ("radius", "Radius"), ("fillet", "Fillet"), ("height", "Height"),
+        ("side_segments", "Side Segs"), ("height_segments", "Height Segs"), ("fillet_segments", "Fillet Segs"),
+        None, ("smooth", "Smooth"), _UVS,
+    ),
+    "PRISM": (
+        ("side1_length", "Side 1 Length"), ("side2_length", "Side 2 Length"), ("side3_length", "Side 3 Length"),
+        ("height", "Height"),
+        ("side1_segments", "Side 1 Segs"), ("side2_segments", "Side 2 Segs"), ("side3_segments", "Side 3 Segs"),
+        ("height_segments", "Height Segs"),
+        None, _UVS,
+    ),
+    "L_EXT": (
+        ("side_length", "Side Length"), ("front_length", "Front Length"),
+        ("side_width", "Side Width"), ("front_width", "Front Width"), ("height", "Height"),
+        ("side_segments", "Side Segs"), ("front_segments", "Front Segs"), ("width_segments", "Width Segs"),
+        ("height_segments", "Height Segs"),
+        None, _UVS,
+    ),
+    "C_EXT": (
+        ("back_length", "Back Length"), ("side_length", "Side Length"), ("front_length", "Front Length"),
+        ("back_width", "Back Width"), ("side_width", "Side Width"), ("front_width", "Front Width"),
+        ("height", "Height"),
+        ("back_segments", "Back Segs"), ("side_segments", "Side Segs"), ("front_segments", "Front Segs"),
+        ("width_segments", "Width Segs"), ("height_segments", "Height Segs"),
+        None, _UVS,
+    ),
+    "TORUS_KNOT": (
+        ("base_curve", "Base Curve", "EXPAND"), ("radius", "Radius"), ("segments", "Segments"),
+        ("p", "P"), ("q", "Q"), ("warp_count", "Warp Count"), ("warp_height", "Warp Height"),
+        None, ("cross_section_radius", "Cross Section Radius"), ("sides", "Sides"),
+        ("eccentricity", "Eccentricity"), ("twist", "Twist"),
+        ("lumps", "Lumps"), ("lump_height", "Lump Height"), ("lump_offset", "Lump Offset"),
+        None, ("smooth_mode", "Smooth", "EXPAND"),
+        None, _UVS,
+    ),
+    "HEDRA": (
+        ("family", "Family"), ("family_p", "P"), ("family_q", "Q"),
+        None, ("axis_scale_p", "Axis Scaling P"), ("axis_scale_q", "Q"), ("axis_scale_r", "R"),
+        None, ("vertex_mode", "Vertices"), ("radius", "Radius"),
+        None, _UVS,
+    ),
 }
 
 _SLICE_DEPENDENT = {"slice_from", "slice_to"}
+
+# Parameters only used in some settings: (property, predicate on the settings).
+_ACTIVE_IF = {
+    "hemisphere_mode": lambda data: data.hemisphere > 0.0,
+    "p": lambda data: data.base_curve == 'KNOT',
+    "q": lambda data: data.base_curve == 'KNOT',
+}
 
 
 def draw_parameter_list(layout, data, kind):
@@ -99,8 +180,8 @@ def draw_parameter_list(layout, data, kind):
         row = col.row()
         if name in _SLICE_DEPENDENT:
             row.active = data.slice_on
-        if name == "hemisphere_mode":
-            row.active = data.hemisphere > 0.0
+        if name in _ACTIVE_IF:
+            row.active = _ACTIVE_IF[name](data)
         if len(entry) > 2:
             row.prop(data, name, text=text, expand=True)
         else:

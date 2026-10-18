@@ -91,6 +91,58 @@ PARAMETERS = {
         "part_body": True, "part_handle": True, "part_spout": True, "part_lid": True,
         "generate_uvs": True,
     },
+    # Extended primitives. Appended: the order of this table numbers the kinds stored in files.
+    "CHAMFERBOX": {
+        "length": 1.0, "width": 1.0, "height": 1.0, "fillet": 0.1,
+        "length_segments": 1, "width_segments": 1, "height_segments": 1, "fillet_segments": 3,
+        "smooth": True, "generate_uvs": True,
+    },
+    "CHAMFERCYL": {
+        "radius": 0.5, "height": 1.0, "fillet": 0.1, "height_segments": 1, "fillet_segments": 1, "sides": 12,
+        "cap_segments": 1, "smooth": True, **_SLICE, "generate_uvs": True,
+    },
+    "CAPSULE": {
+        "radius": 0.5, "height": 2.0, "height_type": "OVERALL", "sides": 12, "height_segments": 1, "smooth": True,
+        **_SLICE, "generate_uvs": True,
+    },
+    "OILTANK": {
+        "radius": 0.5, "height": 2.0, "cap_height": 0.25, "height_type": "OVERALL", "blend": 0.0, "sides": 12,
+        "height_segments": 1, "smooth": True, **_SLICE, "generate_uvs": True,
+    },
+    "SPINDLE": {
+        "radius": 0.5, "height": 2.0, "cap_height": 0.5, "height_type": "OVERALL", "blend": 0.0, "sides": 24,
+        "cap_segments": 1, "height_segments": 1, "smooth": True, **_SLICE, "generate_uvs": True,
+    },
+    "GENGON": {
+        "sides": 5, "radius": 0.5, "fillet": 0.0, "height": 1.0,
+        "side_segments": 1, "height_segments": 1, "fillet_segments": 1, "smooth": True, "generate_uvs": True,
+    },
+    "PRISM": {
+        "side1_length": 1.0, "side2_length": 1.0, "side3_length": 1.0, "height": 1.0,
+        "side1_segments": 1, "side2_segments": 1, "side3_segments": 1, "height_segments": 1, "generate_uvs": True,
+    },
+    "L_EXT": {
+        "side_length": 1.0, "front_length": 1.0, "side_width": 0.25, "front_width": 0.25, "height": 1.0,
+        "side_segments": 1, "front_segments": 1, "width_segments": 1, "height_segments": 1, "generate_uvs": True,
+    },
+    "C_EXT": {
+        "back_length": 1.0, "side_length": 1.0, "front_length": 1.0,
+        "back_width": 0.25, "side_width": 0.25, "front_width": 0.25, "height": 1.0,
+        "back_segments": 1, "side_segments": 1, "front_segments": 1, "width_segments": 1, "height_segments": 1,
+        "generate_uvs": True,
+    },
+    "TORUS_KNOT": {
+        "base_curve": "KNOT", "radius": 0.5, "segments": 120, "p": 2.0, "q": 3.0,
+        "warp_count": 0.0, "warp_height": 0.0,
+        "cross_section_radius": 0.1, "sides": 12, "eccentricity": 1.0, "twist": 0.0,
+        "lumps": 0.0, "lump_height": 0.0, "lump_offset": 0.0,
+        "smooth_mode": "ALL", "generate_uvs": True,
+    },
+    "HEDRA": {
+        "family": "TETRA", "family_p": 0.0, "family_q": 0.0,
+        "axis_scale_p": 100.0, "axis_scale_q": 100.0, "axis_scale_r": 100.0,
+        "vertex_mode": "BASIC", "radius": 0.5, "generate_uvs": True,
+    },
 }
 
 KIND_IDS = tuple(PARAMETERS)
@@ -100,6 +152,10 @@ ENUMS = {
     "hemisphere_mode": ("CHOP", "SQUASH"),
     "base_type": ("TETRA", "OCTA", "ICOSA"),
     "smooth_mode": ("ALL", "SIDES", "NONE", "SEGMENTS"),
+    "height_type": ("OVERALL", "CENTERS"),
+    "base_curve": ("KNOT", "CIRCLE"),
+    "family": ("TETRA", "CUBE_OCTA", "DODEC_ICOS", "STAR1", "STAR2"),
+    "vertex_mode": ("BASIC", "CENTER", "CENTER_SIDES"),
 }
 
 # (minimum, maximum) per parameter; ``None`` means unbounded. Kind-specific entries override the generic ones.
@@ -109,12 +165,25 @@ _GENERIC_LIMITS = {
     "length_segments": (1, 1000), "width_segments": (1, 1000), "depth_segments": (1, 200),
     "height_segments": (1, 200), "cap_segments": (1, 100), "sides": (3, 200), "segments": (3, 200),
     "hemisphere": (0.0, 1.0),
+    "fillet": (0.0, None), "fillet_segments": (1, 100), "cap_height": (0.0, None), "blend": (0.0, None),
+    "side_segments": (1, 200), "side1_length": (0.0, None), "side2_length": (0.0, None), "side3_length": (0.0, None),
+    "side1_segments": (1, 200), "side2_segments": (1, 200), "side3_segments": (1, 200),
+    "back_length": (None, None), "side_length": (None, None), "front_length": (None, None),
+    "back_width": (0.0, None), "side_width": (0.0, None), "front_width": (0.0, None),
+    "back_segments": (1, 200), "front_segments": (1, 200),
+    "p": (1.0, 100.0), "q": (1.0, 100.0), "warp_count": (0.0, 100.0), "warp_height": (-0.95, 10.0),
+    "cross_section_radius": (0.0, None), "eccentricity": (0.01, 100.0), "lumps": (0.0, 100.0),
+    "lump_height": (-0.95, 10.0),
+    "family_p": (0.0, 1.0), "family_q": (0.0, 1.0),
+    "axis_scale_p": (0.0, 1000.0), "axis_scale_q": (0.0, 1000.0), "axis_scale_r": (0.0, 1000.0),
 }
 _KIND_LIMITS = {
     ("SPHERE", "segments"): (4, 200),
     ("GEOSPHERE", "segments"): (1, 200),
     ("TEST_SHAPE", "segments"): (1, 64),
     ("BOX", "height_segments"): (1, 1000),
+    ("CHAMFERBOX", "height_segments"): (1, 1000),
+    ("TORUS_KNOT", "segments"): (3, 1000),
 }
 LIMITS = {
     kind: {
@@ -1054,6 +1123,788 @@ def _test_shape(radius, segments, smooth, part_body, part_handle, part_spout, pa
     return b
 
 
+# =============================================================================
+# Extended primitives
+#
+# Max's parameter sets and creation conventions. Their topology could only be checked where the corpus has converted
+# objects (Capsule, see below); the rest follows the standard primitives' conventions and is listed as unverified in
+# docs/decisions/0006-live-primitives.md.
+
+def _newell(points):
+    nx = ny = nz = 0.0
+    for i, (x0, y0, z0) in enumerate(points):
+        x1, y1, z1 = points[(i + 1) % len(points)]
+        nx += (y0 - y1) * (z0 + z1)
+        ny += (z0 - z1) * (x0 + x1)
+        nz += (x0 - x1) * (y0 + y1)
+    return (nx, ny, nz)
+
+
+def _face_outward(b, indices, uvs, group, material, outward):
+    """Add a face wound so that its normal points along ``outward``."""
+    normal = _newell([b.vertices[i] for i in indices])
+    if normal[0] * outward[0] + normal[1] * outward[1] + normal[2] * outward[2] < 0.0:
+        indices = indices[::-1]
+        uvs = uvs[::-1]
+    b.face(indices, uvs, group, material)
+
+
+def _compact(b):
+    """Drop vertices no face uses (shapes assembled from patches sharing vertices by position)."""
+    used = sorted({i for face in b.faces for i in face})
+    if len(used) == len(b.vertices):
+        return
+    remap = {old: new for new, old in enumerate(used)}
+    b.vertices = [b.vertices[i] for i in used]
+    b.faces = [tuple(remap[i] for i in face) for face in b.faces]
+
+
+class _Welder:
+    """Vertices shared by position, for shapes assembled from patches."""
+
+    __slots__ = ("b", "unit", "index")
+
+    def __init__(self, b, size):
+        self.b = b
+        self.unit = max(abs(size), 1e-12) * 1e-9
+        self.index = {}
+
+    def __call__(self, x, y, z):
+        key = (round(x / self.unit), round(y / self.unit), round(z / self.unit))
+        index = self.index.get(key)
+        if index is None:
+            index = self.index[key] = self.b.vert(x, y, z)
+        return index
+
+
+def _mirror_z(b):
+    """Mirror a shape built upwards to grow downwards (negative heights)."""
+    b.vertices = [(x, y, -z) for x, y, z in b.vertices]
+    b.flip = not b.flip
+
+
+# -----------------------------------------------------------------------------
+# Surfaces of revolution: ChamferCyl, Capsule, OilTank, Spindle
+
+def _profile_add(nodes, r, z, span):
+    """Append profile node ``(r, z)`` whose band to the next node has attributes ``span``; repeated nodes merge."""
+    if abs(r) < 1e-12:
+        r = 0.0
+    if nodes and abs(nodes[-1][0] - r) < 1e-12 and abs(nodes[-1][1] - z) < 1e-12:
+        nodes[-1] = (min(nodes[-1][0], r), nodes[-1][1], span)
+    else:
+        nodes.append((r, z, span))
+
+
+def _revolve(b, nodes, sides, slice_on, slice_from, slice_to, slice_material, ngon_caps=False, start=0.0):
+    """
+    Revolve a profile around Z, in Max's capsule layout (verified on a converted Capsule): the top pole, rings from
+    the top down, the bottom pole; the top fan ``(pole, ring[k], ring[k + 1])``, bands of quads
+    ``(upper[k], lower[k], lower[k + 1], upper[k + 1])``, the bottom fan ``(ring[k], pole, ring[k + 1])``.
+
+    ``nodes``: ``(r, z, (smoothing group, material))`` from the top down; ``r == 0`` is a pole on the axis. The
+    attributes are those of the band to the next node. ``ngon_caps``: a flat end band from the axis is one n-gon
+    without a pole vertex (Max's one-segment caps), unless sliced. With slice on, each cut is one polygon closed
+    along the axis (the profile has to start and end on the axis).
+    """
+    angles, closed = _arc(sides, slice_on, slice_from, slice_to)
+    count = sides if closed else sides + 1
+    last = len(nodes) - 1
+    flat_top = ngon_caps and closed and last >= 2 and nodes[0][0] == 0.0 and nodes[1][1] == nodes[0][1]
+    flat_bottom = ngon_caps and closed and last >= 2 and nodes[last][0] == 0.0 and nodes[last - 1][1] == nodes[last][1]
+
+    lengths = [0.0]
+    for (r0, z0, _s), (r1, z1, _t) in zip(nodes, nodes[1:]):
+        lengths.append(lengths[-1] + math.hypot(r1 - r0, z1 - z0))
+    total = lengths[-1] or 1.0
+    us = [k / sides for k in range(sides + 1)]
+
+    def uv_row(i):
+        v = 1.0 - lengths[i] / total
+        return [(u, v) for u in us]
+
+    rings = []
+    for i, (r, z, _span) in enumerate(nodes):
+        if (i == 0 and flat_top) or (i == last and flat_bottom):
+            rings.append(None)
+        else:
+            rings.append(_ring(b, r, z, angles, closed, start))
+
+    for i in range(last):
+        group, material = nodes[i][2]
+        if rings[i] is None:
+            b.face(rings[i + 1], _cap_uvs(angles[:count], 1.0, False, start), group, material)
+        elif rings[i + 1] is None:
+            b.face(rings[i][::-1], _cap_uvs(angles[:count], 1.0, True, start)[::-1], group, material)
+        else:
+            _band(b, rings[i], rings[i + 1], uv_row(i), uv_row(i + 1), sides, group, material)
+
+    if not closed:
+        r_max = max(r for r, _z, _s in nodes) or 1.0
+        z_lo = min(z for _r, z, _s in nodes)
+        z_span = (max(z for _r, z, _s in nodes) - z_lo) or 1.0
+        for end, e in ((0, 0), (1, count - 1)):
+            a = angles[e] + start
+            outward = (math.sin(a), -math.cos(a), 0.0) if end == 0 else (-math.sin(a), math.cos(a), 0.0)
+            uvs = [((1.0 - r / r_max) if end else r / r_max, (z - z_lo) / z_span) for r, z, _s in nodes]
+            _face_outward(b, [ring[e] for ring in rings], uvs, 8 << end, slice_material, outward)
+
+
+def _chamfer_cyl(radius, height, fillet, height_segments, fillet_segments, sides, cap_segments, smooth,
+                 slice_on, slice_from, slice_to):
+    b = _Builder()
+    r, h = radius, abs(height)
+    f = min(fillet, r, h * 0.5)
+    hs, fs, cs = height_segments, fillet_segments, cap_segments
+    group = 1 if smooth else 0
+    top, sides_attr, bottom = (group, CAP_MATERIALS["TOP"]), (group, CAP_MATERIALS["SIDES"]), \
+        (group, CAP_MATERIALS["BOTTOM"])
+    # Profile from the top centre: top cap rings, top fillet, side, bottom fillet, bottom cap rings.
+    nodes = []
+    _profile_add(nodes, 0.0, h, top)
+    for i in range(1, cs + 1):
+        _profile_add(nodes, (r - f) * i / cs, h, top if i < cs else sides_attr)
+    for k in range(1, fs + 1):
+        angle = 0.5 * math.pi * (1.0 - k / fs)
+        _profile_add(nodes, r - f + f * math.cos(angle), h - f + f * math.sin(angle), sides_attr)
+    for j in range(1, hs + 1):
+        _profile_add(nodes, r, h - f - (h - 2.0 * f) * j / hs, sides_attr)
+    for k in range(1, fs + 1):
+        angle = -0.5 * math.pi * k / fs
+        _profile_add(nodes, r - f + f * math.cos(angle), f + f * math.sin(angle), sides_attr if k < fs else bottom)
+    for i in range(cs - 1, -1, -1):
+        _profile_add(nodes, (r - f) * i / cs, 0.0, bottom)
+    _revolve(b, nodes, sides, slice_on, slice_from, slice_to, CAP_MATERIALS["SLICE"], ngon_caps=cs == 1)
+    if height < 0.0:
+        _mirror_z(b)
+    return b
+
+
+def _tank(b, radius, height, cap_height, height_type, blend, sides, cap_segments, height_segments, cap_shape,
+          groups, slice_on, slice_from, slice_to):
+    """
+    A cylinder with two caps (Capsule, OilTank, Spindle), pivot at the bottom. ``cap_shape`` 'DOME' (a squashed
+    hemisphere of height ``cap_height``) or 'CONE'. ``height_type`` 'OVERALL' measures the whole object, 'CENTERS'
+    the cylinder between the caps. ``blend`` > 0 bevels the edge between a cap and the cylinder.
+    ``groups``: smoothing groups (cap, cylinder).
+    """
+    r, h = radius, abs(height)
+    ch = min(cap_height, r) if cap_shape == "DOME" else cap_height
+    if height_type == "OVERALL":
+        overall = max(h, 2.0 * ch)
+        body = overall - 2.0 * ch
+    else:
+        body = h
+        overall = body + 2.0 * ch
+    cap_group, body_group = groups
+    cap_attr, body_attr, blend_attr = (cap_group, 0), (body_group, 0), (cap_group | body_group, 0)
+    # A bevel cuts `blend` off the cylinder and about as much off the cap.
+    body_cut = min(blend, body * 0.5)
+    if cap_shape == "DOME":
+        end = 0.5 * math.pi - (min(0.45 * math.pi, blend / ch) if ch > 0.0 else 0.0)
+
+        def cap_point(t):
+            angle = end * t
+            return r * math.sin(angle), ch * (1.0 - math.cos(angle))
+    else:
+        cone = math.hypot(r, ch)
+        end = 1.0 - (min(0.9, blend / cone) if cone > 0.0 else 0.0)
+
+        def cap_point(t):
+            return r * end * t, ch * end * t
+
+    cut = blend > 0.0
+    nodes = []
+    _profile_add(nodes, 0.0, overall, cap_attr)
+    for k in range(1, cap_segments + 1):
+        rho, depth = cap_point(k / cap_segments)
+        _profile_add(nodes, rho, overall - depth, blend_attr if (cut and k == cap_segments) else cap_attr)
+    top_z, bottom_z = overall - ch - body_cut, ch + body_cut
+    for j in range(height_segments + 1):
+        last = j == height_segments
+        _profile_add(nodes, r, top_z - (top_z - bottom_z) * j / height_segments,
+                     (blend_attr if cut else cap_attr) if last else body_attr)
+    for k in range(cap_segments, -1, -1):
+        rho, depth = cap_point(k / cap_segments)
+        _profile_add(nodes, rho, depth, cap_attr)
+    _revolve(b, nodes, sides, slice_on, slice_from, slice_to, 1)
+    if height < 0.0:
+        _mirror_z(b)
+    return b
+
+
+def _capsule(radius, height, height_type, sides, height_segments, smooth, slice_on, slice_from, slice_to):
+    # A converted 8-sided Capsule has 4 bands per hemisphere and all faces in smoothing group 3 (mask 4).
+    group = 4 if smooth else 0
+    return _tank(_Builder(), radius, height, radius, height_type, 0.0, sides, max(1, sides // 2), height_segments,
+                 "DOME", (group, group), slice_on, slice_from, slice_to)
+
+
+def _oil_tank(radius, height, cap_height, height_type, blend, sides, height_segments, smooth,
+              slice_on, slice_from, slice_to):
+    # A converted 14-sided OilTank has 4 bands per cap, the caps in smoothing group 3, the cylinder in group 4.
+    groups = (4, 8) if smooth else (0, 0)
+    return _tank(_Builder(), radius, height, cap_height, height_type, blend, sides, max(2, (sides + 3) // 4),
+                 height_segments, "DOME", groups, slice_on, slice_from, slice_to)
+
+
+def _spindle(radius, height, cap_height, height_type, blend, sides, cap_segments, height_segments, smooth,
+             slice_on, slice_from, slice_to):
+    groups = (4, 8) if smooth else (0, 0)
+    return _tank(_Builder(), radius, height, cap_height, height_type, blend, sides, cap_segments, height_segments,
+                 "CONE", groups, slice_on, slice_from, slice_to)
+
+
+# -----------------------------------------------------------------------------
+# Extrusions: Gengon, Prism, L-Ext, C-Ext
+
+def _extrude(b, points, loop, caps, walls, height, height_segments, top=(4, 0), bottom=(2, 1)):
+    """
+    A solid extruded along +Z from a planar region: ``points`` (x, y), the outline ``loop`` (indices into
+    ``points``, counter-clockwise), the cap polygons ``caps`` (index lists, counter-clockwise) and ``walls[m]``, the
+    (smoothing group, material) of the wall over loop edge ``loop[m] -> loop[m + 1]``. ``top`` and ``bottom``: the
+    caps' (smoothing group, material). As the Box: the bottom layer, the rings in between, the top layer; faces
+    bottom, top, then the walls row by row.
+    """
+    h, hs = height, height_segments
+    b.flip ^= h < 0.0
+    bottom_layer = [b.vert(x, y, 0.0) for x, y in points]
+    middle = [[b.vert(points[i][0], points[i][1], h * k / hs) for i in loop] for k in range(1, hs)]
+    top_layer = [b.vert(x, y, h) for x, y in points]
+    rings = [[bottom_layer[i] for i in loop]] + middle + [[top_layer[i] for i in loop]]
+
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    x0, y0 = min(xs), min(ys)
+    dx, dy = (max(xs) - x0) or 1.0, (max(ys) - y0) or 1.0
+    for cap in caps:
+        uvs = [(1.0 - (points[i][0] - x0) / dx, (points[i][1] - y0) / dy) for i in cap]
+        b.face([bottom_layer[i] for i in cap][::-1], uvs[::-1], bottom[0], bottom[1])
+    for cap in caps:
+        b.face([top_layer[i] for i in cap], [((points[i][0] - x0) / dx, (points[i][1] - y0) / dy) for i in cap],
+               top[0], top[1])
+    n = len(loop)
+    lengths = [0.0]
+    for m in range(n):
+        (xa, ya), (xb, yb) = points[loop[m]], points[loop[(m + 1) % n]]
+        lengths.append(lengths[-1] + math.hypot(xb - xa, yb - ya))
+    us = [length / (lengths[-1] or 1.0) for length in lengths]
+    for k in range(hs):
+        lower, upper = rings[k], rings[k + 1]
+        for m in range(n):
+            m1 = (m + 1) % n
+            group, material = walls[m]
+            b.face((lower[m], lower[m1], upper[m1], upper[m]),
+                   ((us[m], k / hs), (us[m + 1], k / hs), (us[m + 1], (k + 1) / hs), (us[m], (k + 1) / hs)),
+                   group, material)
+    return b
+
+
+def _straight_sides(points, loop):
+    """Index of the straight side each loop edge belongs to (consecutive collinear edges share one)."""
+    n = len(loop)
+    directions = []
+    for m in range(n):
+        (xa, ya), (xb, yb) = points[loop[m]], points[loop[(m + 1) % n]]
+        directions.append(math.atan2(yb - ya, xb - xa))
+    # The outlines used here start at a corner.
+    sides = [0] * n
+    for m in range(1, n):
+        turn = abs((directions[m] - directions[m - 1] + math.pi) % TAU - math.pi)
+        sides[m] = sides[m - 1] + (1 if turn > 1e-6 else 0)
+    return sides
+
+
+def _gengon(sides, radius, fillet, height, side_segments, height_segments, fillet_segments, smooth):
+    b = _Builder()
+    n, big = sides, radius
+    half = math.pi / n
+    # The largest fillet turns the polygon into its inscribed circle.
+    f = min(fillet, big * math.cos(half))
+    centre = big - f / math.cos(half) if f > 0.0 else big
+
+    def corner(i, k):
+        theta = TAU * i / n
+        if f <= 0.0:
+            return (big * math.cos(theta), big * math.sin(theta))
+        phi = theta - half + 2.0 * half * k / fillet_segments
+        return (centre * math.cos(theta) + f * math.cos(phi), centre * math.sin(theta) + f * math.sin(phi))
+
+    # Outline from the first corner (on +X), counter-clockwise: each corner's fillet, then the side to the next one.
+    group = 1 if smooth else 0
+    points, walls = [], []
+    for i in range(n):
+        if f > 0.0:
+            for k in range(fillet_segments):
+                points.append(corner(i, k))
+                walls.append((group, CAP_MATERIALS["SIDES"]))
+        end = corner(i, fillet_segments)
+        nxt = corner((i + 1) % n, 0)
+        for s in range(side_segments):
+            t = s / side_segments
+            points.append((end[0] + (nxt[0] - end[0]) * t, end[1] + (nxt[1] - end[1]) * t))
+            walls.append((group, CAP_MATERIALS["SIDES"]))
+    # The largest fillet leaves no flat sides: drop the repeated points.
+    kept = [m for m in range(len(points))
+            if math.hypot(points[m][0] - points[m - 1][0], points[m][1] - points[m - 1][1]) > 1e-9 * max(big, 1e-9)]
+    if len(kept) < 3:
+        # Radius 0 (while creating interactively).
+        return b
+    points = [points[m] for m in kept]
+    walls = [walls[m] for m in kept]
+    loop = list(range(len(points)))
+    return _extrude(b, points, loop, [loop], walls, height, height_segments,
+                    top=(4, CAP_MATERIALS["TOP"]), bottom=(2, CAP_MATERIALS["BOTTOM"]))
+
+
+def _prism_triangle(a, b, c):
+    """
+    Corners of a triangle with sides ``a`` (along +X from the origin), ``b`` and ``c``. A side 3 that doesn't fit is
+    clamped to a thin triangle.
+    """
+    a, b = max(a, 1e-9), max(b, 1e-9)
+    margin = 0.01 * min(a, b)
+    c = min(max(c, abs(a - b) + margin), a + b - margin)
+    x = (a * a + c * c - b * b) / (2.0 * a)
+    y = math.sqrt(max(c * c - x * x, 0.0))
+    return (0.0, 0.0), (a, 0.0), (x, y)
+
+
+def _prism(side1_length, side2_length, side3_length, height, side1_segments, side2_segments, side3_segments,
+           height_segments):
+    b = _Builder()
+    corners = _prism_triangle(side1_length, side2_length, side3_length)
+    # Outline counter-clockwise from the pivot corner: side 1 along +X, side 2 to the apex, side 3 back.
+    points, walls = [], []
+    for side, segments in enumerate((side1_segments, side2_segments, side3_segments)):
+        (xa, ya), (xb, yb) = corners[side], corners[(side + 1) % 3]
+        for s in range(segments):
+            t = s / segments
+            points.append((xa + (xb - xa) * t, ya + (yb - ya) * t))
+            walls.append((8 << side, 2 + side))
+    loop = list(range(len(points)))
+    return _extrude(b, points, loop, [loop], walls, height, height_segments, top=(4, 0), bottom=(2, 1))
+
+
+def _grid_region(rects):
+    """
+    A planar quad mesh from rectangles ``(x0, y0, x1, y1, segments along x, segments along y)`` sharing edges:
+    ``(points, quads, outline)``, the outline counter-clockwise from its corner nearest the region's (-X, -Y) corner.
+    """
+    points, quads, index = [], [], {}
+    size = max(max(abs(v) for rect in rects for v in rect[:4]), 1e-9)
+
+    def point(x, y):
+        key = (round(x / size * 1e9), round(y / size * 1e9))
+        if key not in index:
+            index[key] = len(points)
+            points.append((x, y))
+        return index[key]
+
+    for x0, y0, x1, y1, nx, ny in rects:
+        if x1 - x0 <= 1e-12 * size or y1 - y0 <= 1e-12 * size:
+            continue
+        grid = [[point(x0 + (x1 - x0) * i / nx, y0 + (y1 - y0) * j / ny) for i in range(nx + 1)]
+                for j in range(ny + 1)]
+        for j in range(ny):
+            for i in range(nx):
+                quads.append((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+    if not quads:
+        # Nothing left (zero sizes while creating interactively).
+        return points, quads, []
+    # The rectangles share whole edges with the same segment counts, so there are no T-junctions.
+    loop = _border_loop(quads)
+    xmin = min(p[0] for p in points)
+    ymin = min(p[1] for p in points)
+    first = min(range(len(loop)), key=lambda m: (points[loop[m]][0] - xmin) ** 2 + (points[loop[m]][1] - ymin) ** 2)
+    return points, quads, loop[first:] + loop[:first]
+
+
+def _extrusion_walls(points, loop):
+    """Per outline edge: (smoothing group, material) of its straight side: each side flat, IDs from 2 on."""
+    sides = _straight_sides(points, loop)
+    return [(8 << (side % 24), 2 + side) for side in sides]
+
+
+def _mirrored(points, sx, sy):
+    return [(x * sx, y * sy) for x, y in points]
+
+
+def _l_ext(side_length, front_length, side_width, front_width, height, side_segments, front_segments,
+           width_segments, height_segments):
+    b = _Builder()
+    # Pivot at the centre of the bounding rectangle; the front leg runs along X at -Y, the side leg along Y at -X.
+    # Negative lengths mirror the shape.
+    sl, fl = abs(side_length), abs(front_length)
+    sw, fw = min(side_width, fl), min(front_width, sl)
+    x0, y0 = -fl * 0.5, -sl * 0.5
+    ws = width_segments
+    points, quads, loop = _grid_region([
+        (x0, y0, x0 + sw, y0 + fw, ws, ws),
+        (x0 + sw, y0, x0 + fl, y0 + fw, front_segments, ws),
+        (x0, y0 + fw, x0 + sw, y0 + sl, ws, side_segments),
+    ])
+    if not quads:
+        return b
+    sx, sy = (-1.0 if front_length < 0.0 else 1.0), (-1.0 if side_length < 0.0 else 1.0)
+    if sx * sy < 0.0:
+        b.flip = True
+    walls = _extrusion_walls(points, loop)
+    return _extrude(b, _mirrored(points, sx, sy), loop, quads, walls, height, height_segments)
+
+
+def _c_ext(back_length, side_length, front_length, back_width, side_width, front_width, height, back_segments,
+           side_segments, front_segments, width_segments, height_segments):
+    b = _Builder()
+    # Pivot at the centre of the bounding rectangle; the side leg runs along Y at -X, the front leg along X at -Y,
+    # the back leg along X at +Y: the opening faces +X. Negative lengths mirror the shape.
+    bl, sl, fl = abs(back_length), abs(side_length), abs(front_length)
+    sw = min(side_width, bl, fl)
+    fw = min(front_width, sl)
+    bw = min(back_width, sl - fw)
+    wide = max(bl, fl)
+    x0, y0 = -wide * 0.5, -sl * 0.5
+    ws = width_segments
+    points, quads, loop = _grid_region([
+        (x0, y0, x0 + sw, y0 + fw, ws, ws),
+        (x0 + sw, y0, x0 + fl, y0 + fw, front_segments, ws),
+        (x0, y0 + fw, x0 + sw, y0 + sl - bw, ws, side_segments),
+        (x0, y0 + sl - bw, x0 + sw, y0 + sl, ws, ws),
+        (x0 + sw, y0 + sl - bw, x0 + bl, y0 + sl, back_segments, ws),
+    ])
+    if not quads:
+        return b
+    sy = -1.0 if side_length < 0.0 else 1.0
+    if sy < 0.0:
+        b.flip = True
+    walls = _extrusion_walls(points, loop)
+    return _extrude(b, _mirrored(points, 1.0, sy), loop, quads, walls, height, height_segments)
+
+
+# -----------------------------------------------------------------------------
+# ChamferBox
+
+CHAMFERBOX_FILLET_MATERIAL = 6
+
+
+def _chamfer_box(length, width, height, fillet, length_segments, width_segments, height_segments, fillet_segments,
+                 smooth):
+    """
+    A box with rounded edges: flat sides (the Box's material IDs and order), edge fillets of ``fillet_segments``
+    around and the box's segments along, and corner patches made of rows of quads ending in a triangle. Points are
+    the inner box (shrunk by the fillet) plus the fillet radius in some direction; patches share vertices by
+    position.
+    """
+    b = _Builder()
+    w, l, h = abs(width), abs(length), abs(height)
+    f = max(0.0, min(fillet, w * 0.5, l * 0.5, h * 0.5))
+    n = fillet_segments
+    inner = ((-w * 0.5 + f, w * 0.5 - f), (-l * 0.5 + f, l * 0.5 - f), (f, h - f))
+    full = ((-w * 0.5, w * 0.5), (-l * 0.5, l * 0.5), (0.0, h))
+    segments = (width_segments, length_segments, height_segments)
+    weld = _Welder(b, max(w, l, h))
+    # Negative sizes mirror the shape; faces are wound outwards in the mirrored positions.
+    signs = (-1.0 if width < 0.0 else 1.0, -1.0 if length < 0.0 else 1.0, -1.0 if height < 0.0 else 1.0)
+    group = 1 if smooth else 0
+
+    def vertex(centre, direction):
+        p = [(centre[a] + f * direction[a]) * signs[a] for a in range(3)]
+        return weld(*p)
+
+    def uv(centre, direction, axis):
+        p = [centre[a] + f * direction[a] for a in range(3)]
+        u_axis, v_axis = [a for a in range(3) if a != axis]
+        return tuple((p[a] - full[a][0]) / ((full[a][1] - full[a][0]) or 1.0) for a in (u_axis, v_axis))
+
+    def quad(cells, axis, material):
+        # cells: four (centre, direction); wound outwards, smoothing and material as given.
+        indices = [vertex(c, d) for c, d in cells]
+        uvs = [uv(c, d, axis) for c, d in cells]
+        outward = [sum(d[a] for _c, d in cells) * signs[a] for a in range(3)]
+        _face_outward(b, indices, uvs, group, material, outward)
+
+    def station(axis, k, count):
+        lo, hi = inner[axis]
+        return lo + (hi - lo) * k / count
+
+    # Flat sides, in the Box's order: bottom, top, front, right, back, left.
+    for side, axis, sign in (("BOTTOM", 2, -1.0), ("TOP", 2, 1.0), ("FRONT", 1, -1.0), ("RIGHT", 0, 1.0),
+                             ("BACK", 1, 1.0), ("LEFT", 0, -1.0)):
+        ua, va = [a for a in range(3) if a != axis]
+        direction = tuple(sign if a == axis else 0.0 for a in range(3))
+        fixed = inner[axis][1] if sign > 0.0 else inner[axis][0]
+        for j in range(segments[va]):
+            for i in range(segments[ua]):
+                cells = []
+                for di, dj in ((0, 0), (1, 0), (1, 1), (0, 1)):
+                    centre = [0.0, 0.0, 0.0]
+                    centre[axis] = fixed
+                    centre[ua] = station(ua, i + di, segments[ua])
+                    centre[va] = station(va, j + dj, segments[va])
+                    cells.append((centre, direction))
+                quad(cells, axis, BOX_SIDES[side][0])
+
+    # Edge fillets: along each axis, at the four combinations of signs of the other two.
+    for along in (0, 1, 2):
+        a1, a2 = [a for a in range(3) if a != along]
+        for s1 in (-1.0, 1.0):
+            for s2 in (-1.0, 1.0):
+                for m in range(segments[along]):
+                    for k in range(n):
+                        cells = []
+                        for dm, dk in ((0, 0), (1, 0), (1, 1), (0, 1)):
+                            angle = 0.5 * math.pi * (k + dk) / n
+                            centre = [0.0, 0.0, 0.0]
+                            centre[along] = station(along, m + dm, segments[along])
+                            centre[a1] = inner[a1][1] if s1 > 0.0 else inner[a1][0]
+                            centre[a2] = inner[a2][1] if s2 > 0.0 else inner[a2][0]
+                            direction = [0.0, 0.0, 0.0]
+                            direction[a1] = s1 * math.cos(angle)
+                            direction[a2] = s2 * math.sin(angle)
+                            cells.append((centre, direction))
+                        quad(cells, a1, CHAMFERBOX_FILLET_MATERIAL)
+
+    # Corners: the octant between three fillets, rows of quads closed by a triangle.
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            for sz in (-1.0, 1.0):
+                centre = (inner[0][1] if sx > 0.0 else inner[0][0], inner[1][1] if sy > 0.0 else inner[1][0],
+                          inner[2][1] if sz > 0.0 else inner[2][0])
+
+                def direction(i, j):
+                    k = n - i - j
+                    d = (sx * math.sin(0.5 * math.pi * i / n), sy * math.sin(0.5 * math.pi * j / n),
+                         sz * math.sin(0.5 * math.pi * k / n))
+                    length = math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+                    return tuple(c / length for c in d)
+
+                for j in range(n):
+                    for i in range(n - j):
+                        if i < n - j - 1:
+                            keys = ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))
+                        else:
+                            keys = ((i, j), (i + 1, j), (i, j + 1))
+                        cells = [(centre, direction(ki, kj)) for ki, kj in keys]
+                        indices = [vertex(c, d) for c, d in cells]
+                        uvs = [uv(c, d, 2) for c, d in cells]
+                        outward = (sx * signs[0], sy * signs[1], sz * signs[2])
+                        _face_outward(b, indices, uvs, group, CHAMFERBOX_FILLET_MATERIAL, outward)
+    _compact(b)
+    return b
+
+
+# -----------------------------------------------------------------------------
+# Torus Knot
+
+def _knot_point(t, base_curve, radius, p, q, warp_count, warp_height):
+    """Point of the base curve at parameter ``t`` in [0, 2 pi)."""
+    warp = 1.0 + warp_height * math.sin(warp_count * t)
+    if base_curve == "CIRCLE":
+        rho = radius * warp
+        return (rho * math.cos(t), rho * math.sin(t), 0.0)
+    # (p, q) torus knot: p turns around Z, q turns around the core circle; the overall radius is `radius`.
+    rho = radius * warp * (2.0 + math.cos(q * t)) / 3.0
+    return (rho * math.cos(p * t), rho * math.sin(p * t), -radius * math.sin(q * t) / 3.0)
+
+
+def _torus_knot(base_curve, radius, segments, p, q, warp_count, warp_height, cross_section_radius, sides,
+                eccentricity, twist, lumps, lump_height, lump_offset, smooth_mode):
+    b = _Builder()
+    m, n = segments, sides
+    curve = [_knot_point(TAU * i / m, base_curve, radius, p, q, warp_count, warp_height) for i in range(m)]
+
+    def sub(u, v):
+        return (u[0] - v[0], u[1] - v[1], u[2] - v[2])
+
+    def cross(u, v):
+        return (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+
+    def dot(u, v):
+        return u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+
+    def unit(u):
+        length = math.sqrt(dot(u, u))
+        return (u[0] / length, u[1] / length, u[2] / length) if length > 1e-12 else (0.0, 0.0, 1.0)
+
+    tangents = [unit(sub(curve[(i + 1) % m], curve[i - 1])) for i in range(m)]
+    # Rotation-minimising frames, starting with the normal pointing away from Z (the outside, as on the Torus);
+    # the angle left over after going round is spread along the knot so that the tube closes.
+    first = curve[0]
+    normal = sub((first[0], first[1], 0.0), (0.0, 0.0, 0.0))
+    normal = unit(sub(normal, tuple(c * dot(normal, tangents[0]) for c in tangents[0])))
+    normals = [normal]
+    for i in range(1, m + 1):
+        t = tangents[i % m]
+        prev = normals[-1]
+        normals.append(unit(sub(prev, tuple(c * dot(prev, t) for c in t))))
+    end = normals.pop()
+    error = math.atan2(dot(cross(normals[0], end), tangents[0]), dot(normals[0], end))
+
+    rings = []
+    for i in range(m):
+        t, nrm = tangents[i], normals[i]
+        binormal = cross(nrm, t)
+        param = TAU * i / m
+        # The end frame at angle psi is the start frame at psi - error.
+        offset = (twist + error) * i / m
+        bump = 0.5 - 0.5 * math.cos(lumps * param + lump_offset)
+        rc = cross_section_radius * (1.0 + lump_height * bump)
+        ring = []
+        for j in range(n):
+            psi = TAU * j / n + offset
+            c, s = rc * math.cos(psi), rc * eccentricity * math.sin(psi)
+            point = curve[i]
+            ring.append(b.vert(point[0] + c * nrm[0] + s * binormal[0], point[1] + c * nrm[1] + s * binormal[1],
+                               point[2] + c * nrm[2] + s * binormal[2]))
+        rings.append(ring)
+
+    def group(i, j):
+        if smooth_mode == "ALL":
+            return 1
+        if smooth_mode == "SIDES":
+            return _cyclic_group(j, n, True)
+        if smooth_mode == "SEGMENTS":
+            return _cyclic_group(i, m, True)
+        return 0
+
+    for i in range(m):
+        ra, rb = rings[i], rings[(i + 1) % m]
+        for j in range(n):
+            j1 = (j + 1) % n
+            b.face((ra[j], rb[j], rb[j1], ra[j1]),
+                   ((i / m, j / n), ((i + 1) / m, j / n), ((i + 1) / m, (j + 1) / n), (i / m, (j + 1) / n)),
+                   group(i, j), 0)
+    return b
+
+
+# -----------------------------------------------------------------------------
+# Hedra
+
+def _dual(verts, faces):
+    """Dual of a convex polyhedron centred on the origin: face centres as vertices, a face around each vertex."""
+    centres = [_normalize([sum(verts[i][k] for i in face) / len(face) for k in range(3)]) for face in faces]
+    dual_faces = []
+    for v in range(len(verts)):
+        around = [f for f, face in enumerate(faces) if v in face]
+        dual_faces.append(_sorted_around(verts[v], around, centres))
+    return [_normalize(v) for v in centres], dual_faces
+
+
+def _sorted_around(axis, items, points):
+    """``items`` (indices into ``points``) sorted counter-clockwise around ``axis`` seen from outside."""
+    axis = _normalize(axis)
+    helper = (1.0, 0.0, 0.0) if abs(axis[0]) < 0.9 else (0.0, 1.0, 0.0)
+    u = _normalize((helper[1] * axis[2] - helper[2] * axis[1], helper[2] * axis[0] - helper[0] * axis[2],
+                    helper[0] * axis[1] - helper[1] * axis[0]))
+    w = (axis[1] * u[2] - axis[2] * u[1], axis[2] * u[0] - axis[0] * u[2], axis[0] * u[1] - axis[1] * u[0])
+
+    def angle(i):
+        p = points[i]
+        return math.atan2(sum(p[k] * w[k] for k in range(3)), sum(p[k] * u[k] for k in range(3)))
+
+    return sorted(items, key=angle)
+
+
+def _hedra_base(family):
+    if family == "TETRA":
+        return _base_polyhedron("TETRA")
+    if family == "CUBE_OCTA":
+        return _base_polyhedron("OCTA")
+    if family == "STAR2":
+        return _dual(*_base_polyhedron("ICOSA"))
+    return _base_polyhedron("ICOSA")
+
+
+# How far a star family raises the centres of its base faces (relative to their distance from the centre).
+_STAR_RAISE = {"STAR1": 2.0, "STAR2": 2.4}
+
+
+def _hedra(family, family_p, family_q, axis_scale_p, axis_scale_q, axis_scale_r, vertex_mode, radius):
+    """
+    Polyhedra in the symmetry of a base solid (Wythoff construction): every triangle (vertex, edge midpoint, face
+    centre) of the base solid's barycentric subdivision gets the point ``r * vertex + q * edge + p * face``
+    (``r = 1 - p - q``). The faces are the points around each base face ("P" faces), each base vertex ("Q" faces)
+    and each base edge ("R" faces); faces that collapse are dropped. P = Q = 0 gives the base solid, P = 1 its dual,
+    Q = 1 the solid with vertices at its edge midpoints. Material IDs: P faces 0, Q faces 1, R faces 2. The star
+    families raise the centres of the base faces. Axis scaling moves the centres of the P, Q and R faces
+    (percent); faces then become fans around their centre, as do all faces with the Center vertex modes.
+    """
+    b = _Builder()
+    p, q = family_p, family_q
+    if p + q > 1.0:
+        p, q = p / (p + q), q / (p + q)
+    r = 1.0 - p - q
+    verts, faces = _hedra_base(family)
+    centres = [_normalize([sum(verts[i][k] for i in face) / len(face) for k in range(3)]) for face in faces]
+
+    # Fundamental triangles: (vertex, edge (sorted pair), face).
+    triangles = []
+    for f, face in enumerate(faces):
+        for k in range(len(face)):
+            a, c = face[k], face[(k + 1) % len(face)]
+            edge = (min(a, c), max(a, c))
+            triangles.append((a, edge, f))
+            triangles.append((c, edge, f))
+    edge_dirs = {}
+    for _v, edge, _f in triangles:
+        if edge not in edge_dirs:
+            edge_dirs[edge] = _normalize([verts[edge[0]][k] + verts[edge[1]][k] for k in range(3)])
+    points = []
+    for v, edge, f in triangles:
+        e = edge_dirs[edge]
+        points.append(tuple(r * verts[v][k] + q * e[k] + p * centres[f][k] for k in range(3)))
+    scale = radius / max(math.sqrt(sum(c * c for c in pt)) for pt in points)
+    weld = _Welder(b, radius)
+    corner = [weld(*(c * scale for c in pt)) for pt in points]
+
+    groups = {}
+    for t, (v, edge, f) in enumerate(triangles):
+        groups.setdefault(("P", f), []).append(t)
+        groups.setdefault(("Q", v), []).append(t)
+        groups.setdefault(("R", edge), []).append(t)
+    axes = {"P": lambda key: centres[key], "Q": lambda key: verts[key], "R": lambda key: edge_dirs[key]}
+    scales = {"P": axis_scale_p / 100.0, "Q": axis_scale_q / 100.0, "R": axis_scale_r / 100.0}
+    raise_p = _STAR_RAISE.get(family, 1.0)
+    materials = {"P": 0, "Q": 1, "R": 2}
+
+    polygons = []
+    for (kind, key), members in groups.items():
+        axis = axes[kind](key)
+        ordered = _sorted_around(axis, members, points)
+        polygon = []
+        for t in ordered:
+            if not polygon or corner[t] != polygon[-1]:
+                polygon.append(corner[t])
+        if len(polygon) > 1 and polygon[0] == polygon[-1]:
+            polygon.pop()
+        if len(polygon) >= 3:
+            polygons.append((kind, polygon))
+
+    for kind, polygon in polygons:
+        material = materials[kind]
+        pts = [b.vertices[i] for i in polygon]
+        centroid = [sum(pt[k] for pt in pts) / len(pts) for k in range(3)]
+        push = scales[kind] * (raise_p if kind == "P" else 1.0)
+        fan = vertex_mode != "BASIC" or abs(push - 1.0) > 1e-9
+        if not fan:
+            b.face(polygon, _spherical_uvs([_normalize(pt) for pt in pts]), 0, material)
+            continue
+        centre = weld(*(c * push for c in centroid))
+        if vertex_mode == "CENTER_SIDES":
+            mids = []
+            for k in range(len(polygon)):
+                pa, pb = b.vertices[polygon[k]], b.vertices[polygon[(k + 1) % len(polygon)]]
+                mids.append(weld(*((pa[c] + pb[c]) * 0.5 for c in range(3))))
+            for k in range(len(polygon)):
+                face = (polygon[k], mids[k], centre, mids[k - 1])
+                b.face(face, _spherical_uvs([_normalize(b.vertices[i]) for i in face]), 0, material)
+        else:
+            for k in range(len(polygon)):
+                face = (polygon[k], polygon[(k + 1) % len(polygon)], centre)
+                b.face(face, _spherical_uvs([_normalize(b.vertices[i]) for i in face]), 0, material)
+    _compact(b)
+    return b
+
+
 _GENERATORS = {
     "BOX": _box,
     "SPHERE": _sphere,
@@ -1065,4 +1916,15 @@ _GENERATORS = {
     "PYRAMID": _pyramid,
     "PLANE": _plane,
     "TEST_SHAPE": _test_shape,
+    "CHAMFERBOX": _chamfer_box,
+    "CHAMFERCYL": _chamfer_cyl,
+    "CAPSULE": _capsule,
+    "OILTANK": _oil_tank,
+    "SPINDLE": _spindle,
+    "GENGON": _gengon,
+    "PRISM": _prism,
+    "L_EXT": _l_ext,
+    "C_EXT": _c_ext,
+    "TORUS_KNOT": _torus_knot,
+    "HEDRA": _hedra,
 }
