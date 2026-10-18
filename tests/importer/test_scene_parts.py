@@ -279,3 +279,26 @@ def test_exposure_from_ev():
 def test_standard_far_attenuation():
     omni = lights.light_from_params("Omnilight", {"use_far_atten": True, "far_atten_end": 200.0})
     assert omni.cutoff_distance == 200.0
+
+
+polygons = _load("mx_polygons", os.path.join(ADDON, "polygons.py"))
+
+
+class TestPolygons:
+
+    def test_quad_from_two_triangles(self):
+        faces, sources, (uv_faces,) = polygons.merge_triangles(
+            [(0, 1, 2), (0, 2, 3)], [0b011, 0b110], [[(10, 11, 12), (10, 12, 13)]])
+        assert len(faces) == 1 and sorted(faces[0]) == [0, 1, 2, 3]
+        start = faces[0].index(0)
+        assert faces[0][start:] + faces[0][:start] == (0, 1, 2, 3)     # Winding kept.
+        assert [v + 10 for v in faces[0]] == list(uv_faces[0])
+        assert sources == [0]
+
+    def test_fan_and_untouched(self):
+        # A hexagon as a fan of 4 triangles (hidden inner edges), plus a separate visible triangle.
+        fan = [(0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 5)]
+        vis = [0b011, 0b010, 0b010, 0b110]
+        faces, sources, _ = polygons.merge_triangles(fan + [(6, 7, 8)], vis + [0b111])
+        assert sorted(len(f) for f in faces) == [3, 6]
+        assert polygons.merge_triangles([(0, 1, 2)], [0b111]) is None

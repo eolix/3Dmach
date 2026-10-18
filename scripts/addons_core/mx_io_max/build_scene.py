@@ -416,68 +416,36 @@ class SceneBuilder:
         return mesh
 
     def _mesh_from_data(self, data, name, merge_triangles=False):
-        from . import mesh_build
+        from . import mesh_build, polygons
         from .materials.nodes import uv_layer_name
         faces = data.faces
         groups = data.smoothing_groups if data.smoothing_groups else [1] * len(faces)
+        mat_ids = data.material_ids if data.material_ids else None
+        channels = [(channel, mapping.vertices, mapping.faces)
+                    for channel, mapping in sorted(data.map_channels.items()) if channel >= 1]
+        visibility = getattr(data, "edge_visibility", None)
+        if visibility and (merge_triangles or len(faces) <= MERGE_TRIANGLES_UP_TO):
+            # Editable Mesh: Max's polygons back from the triangles (subdivision modifiers work on them).
+            usable = [c for c in channels if len(c[2]) == len(faces)]
+            merged = polygons.merge_triangles(faces, visibility, [c[2] for c in usable])
+            if merged is not None:
+                faces, sources, channel_faces = merged
+                groups = [groups[i] for i in sources]
+                mat_ids = [mat_ids[i] for i in sources] if mat_ids else None
+                channels = [(c[0], c[1], f) for c, f in zip(usable, channel_faces)]
+                self.report.add_imported("triangle meshes shown as polygons")
         sizes = None
         uv_layers = []
-        for channel, mapping in sorted(data.map_channels.items()):
-            if channel < 1:
-                continue    # Vertex colour / illumination / alpha channels: not imported yet.
+        for channel, vertices, channel_faces in channels:
             if sizes is None:
                 sizes = mesh_build._face_arrays(faces)[0]
-            uvs = mesh_build.corner_uvs(mapping.vertices, mapping.faces, sizes)
+            uvs = mesh_build.corner_uvs(vertices, channel_faces, sizes)
             if uvs is None:
                 self.note(name, "map channel {:d} doesn't match the geometry, skipped".format(channel))
                 continue
             uv_layers.append((uv_layer_name(channel), uvs))
-        mesh = mesh_build.build_mesh(
-            name, data.positions, faces, uv_layers=uv_layers, smoothing_groups=groups,
-            material_ids=data.material_ids if data.material_ids else None)
-        visibility = getattr(data, "edge_visibility", None)
-        if visibility and (merge_triangles or len(faces) <= MERGE_TRIANGLES_UP_TO):
-            if self._merge_hidden_edges(mesh, faces, visibility):
-                self.report.add_imported("triangle meshes shown as polygons")
-        return mesh
-
-    @staticmethod
-    def _merge_hidden_edges(mesh, faces, visibility):
-        """
-        Editable Mesh: dissolve the hidden edges (the diagonals of the polygons Max shows), so the mesh has
-        Max's polygons (MeshSmooth and TurboSmooth subdivide those). Returns True when edges were dissolved.
-        """
-        import bmesh
-        import numpy as np
-        tris = np.asarray(faces, dtype=np.int64)
-        if tris.ndim != 2 or tris.shape[1] != 3:
-            return False
-        vis = np.asarray(visibility, dtype=np.int64)
-        n = len(mesh.vertices)
-        hidden = []
-        for k in range(3):
-            a, b = tris[:, k], tris[:, (k + 1) % 3]
-            mask = (vis & (1 << k)) == 0
-            hidden.append((np.minimum(a, b) * n + np.maximum(a, b))[mask])
-        hidden = np.concatenate(hidden)
-        if not len(hidden):
-            return False
-        edge_verts = np.zeros(len(mesh.edges) * 2, dtype=np.int32)
-        mesh.edges.foreach_get("vertices", edge_verts)
-        edge_verts = edge_verts.reshape(-1, 2).astype(np.int64)
-        keys = np.minimum(edge_verts[:, 0], edge_verts[:, 1]) * n + np.maximum(edge_verts[:, 0], edge_verts[:, 1])
-        index = np.nonzero(np.isin(keys, hidden))[0]
-        if not len(index):
-            return False
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        bm.edges.ensure_lookup_table()
-        edges = [bm.edges[i] for i in index.tolist() if len(bm.edges[i].link_faces) == 2]
-        if edges:
-            bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=False, use_face_split=False)
-            bm.to_mesh(mesh)
-        bm.free()
-        return bool(edges)
+        return mesh_build.build_mesh(
+            name, data.positions, faces, uv_layers=uv_layers, smoothing_groups=groups, material_ids=mat_ids)
 
     def _primitive_mesh(self, data, name, live=True):
         """
