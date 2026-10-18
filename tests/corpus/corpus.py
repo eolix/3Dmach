@@ -100,7 +100,11 @@ def load_corpus(root=None):
     max_files = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
-        max_files.extend(os.path.join(dirpath, f) for f in sorted(filenames) if f.lower().endswith(".max"))
+        # Empty files (e.g. placeholders left by an archive extraction) are not scenes.
+        max_files.extend(
+            os.path.join(dirpath, f) for f in sorted(filenames)
+            if f.lower().endswith(".max") and os.path.getsize(os.path.join(dirpath, f)) > 0
+        )
     per_dir = {}
     for path in max_files:
         per_dir[os.path.dirname(path)] = per_dir.get(os.path.dirname(path), 0) + 1

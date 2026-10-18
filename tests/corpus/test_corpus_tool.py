@@ -7,7 +7,7 @@
 import corpus
 
 
-def touch(path, data=b""):
+def touch(path, data=b"x"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return path
@@ -30,6 +30,7 @@ def test_discovery_and_references(tmp_path):
     touch(tmp_path / "many" / "b.MAX")
     touch(tmp_path / "many" / "reference.obj")  # Ambiguous with two .max files: not used.
     touch(tmp_path / "top.max")
+    touch(tmp_path / "empty.max", b"")      # Skipped: not a scene.
 
     cases, problems = corpus.load_corpus(tmp_path)
     assert problems == []
