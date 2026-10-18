@@ -16,21 +16,21 @@ The Compound File container is read according to Microsoft's public [MS-CFB] spe
 
 ## Status
 
-Phase 2b core (see `ROADMAP.md`): container, chunk trees, gzip-compressed streams, class and DLL directories,
-scene objects and references, nodes (name, parent, object offset, controller / object / material / layer
-slots), hierarchy, and the static value of the common transform controllers.
+The reader and its decoders were checked against 623 real files (Autodesk's public sample files, Max 2008-2018;
+see `docs/format/overview.md` for every layout and the evidence behind it): container, chunk trees, gzip, class and
+DLL directories (registry keyed by class ID *and* superclass), derived objects, references, nodes (name, parent,
+object offset, wire colour, flags), hierarchy and transforms (quaternion convention verified against the node
+matrices the Skin modifier stores), system units, ParamBlock2 / ParamBlock with typed values.
 
-First decoders (Phase 2c/2e groundwork): Editable Poly / PolyMeshObject / Editable Mesh meshes, standard
-primitives (documented parameters and cached meshes), modifier-stack wrappers, generic parameter blocks,
-materials (names, the few documented parameters, sub-materials) and bitmap paths. Not decoded yet: modifier
-parameters, other map types, units, and node flags (hidden, frozen, wire colour: nothing about them is
-documented yet).
+Decoders: Editable Poly / Editable Mesh meshes (every corpus mesh), modifier stacks (order verified) and the
+parameters of the common modifiers, primitives (parameters; no primitive caches a mesh), shapes, lights and
+cameras, materials (Standard, Physical, Arnold Standard Surface, Multi/Sub-Object with its ID list, two-material
+classes) and maps (Bitmap paths through the asset table, Checker, Noise, Mix, Normal Bump).
 
-**Everything above the container follows `docs/format/overview.md`, which has not been checked against real
-files yet.** Each assumption the code relies on is marked with a comment:
+What could only be inferred is marked in the code:
 
 ```sh
-grep -rn "Unverified" maxfile/
+grep -rn "Guess" maxfile/
 ```
 
 Python 3.11 or newer, standard library only.
@@ -68,9 +68,11 @@ with maxfile.open("scene.max") as mf:          # a path, or bytes holding the fi
 | `maxfile.classes.ClassID` | Two 32-bit words `a`, `b`; `str()` → `0x1BF8338D, 0x192F6098`, `.u64_str()` → `0x192F60981BF8338D`. |
 | `maxfile.transform.Transform` | `position (x, y, z)`, `rotation (w, x, y, z)`, `scale`; `.matrix()` → 4×4 rows, column vectors. |
 | `maxfile.registry` | Known class names (`known_class()`), decoders (`@decoder`, `find_decoder()`, `registered_decoders()`). |
-| `Scene.resolve_geometry(node)` | `(base_object, [modifier objects, top of stack first])` through modifier-stack wrappers. |
-| `Scene.param_block(obj)` | Any object read as a generic parameter block (`ParamBlockData`). |
-| `MaxFile.asset_metadata` | `AssetMetadata`: best-effort bitmap paths from the asset metadata stream. |
+| `Scene.resolve_geometry(node)` | `(base_object, [modifier objects, top of stack first])` through derived objects. |
+| `Scene.param_block(obj)` | A ParamBlock2 / ParamBlock object as `ParamBlockData(params={id: Param})` (typed values, references, controllers), or None. |
+| `MaxFile.asset_metadata` | `AssetMetadata`: the asset table (`FileAssetMetaData3` / `2`): ID, type, path, resolved path. |
+| `MaxFile.units`, `.max_release` | `SceneUnits(unit, scale, code)` (`.metres` per scene unit); Max release x 1000. |
+| `Node` | `name`, `parent`, `children`, `object_offset`, `transform`, `controller` / `object` / `material` / `layer`, `flags`, `wire_color`, `is_hidden` / `is_frozen` / `is_target` (guessed bits). |
 | `maxfile.report` | `to_plain(value)` (JSON-ready copy of decoded data), `format_value(value)` (readable text). |
 | `maxfile.MaxFileError` | Base of every content error: `ContainerError`, `NotCompoundFileError`, `UnsupportedFormatError`, `StreamNotFoundError`, `ChunkError`, `DecodeError`. |
 
@@ -84,15 +86,19 @@ The data model and the reasons behind it are in `docs/decisions/0008-maxfile-api
 ### Decoded data
 
 `mf.scene.decode(obj)` runs the decoder registered for the object's class and returns one of these plain
-dataclasses (or None, with the reason in `warnings`). Everything is from `docs/format/overview.md` and
-unverified; fields the overview says nothing about are left empty rather than guessed.
+dataclasses (or None, with the reason in `warnings`). The layouts are in `docs/format/overview.md`; values that
+could only be inferred are listed per object (`guessed`) or marked `# Guess:` in the code.
 
 | Class(es) | Returns | Contents |
 |---|---|---|
-| Editable Poly, PolyMeshObject, Editable Mesh | `objects.geometry.MeshData` | `positions`, `faces` (polygons, Max corner order), `material_ids` (1-based), `smoothing_groups` (0 = none), `map_channels` (`{channel: MapChannel(vertices, faces)}`, channels as stored: 0 colour, 1+ UV, -1/-2 illum/alpha), `source`, `warnings`. |
-| Box, Sphere, Cylinder, Torus, Cone, Plane, primitives 0x14 / 0x16 / 0x19 | `objects.primitives.PrimitiveData` | `kind` (`"BOX"`, `"SPHERE"`, `"CYLINDER"`, `"TORUS"`, `"CONE"`, `"PLANE"`, `"UNKNOWN"`), `params` (`length`, `width`, `height`, `radius`, `radius1`, `radius2`: only what the overview names), `cached_mesh` (`MeshData` or None), `encoding`, `extra_values` (unnamed further values), `param_block`. |
-| Derived objects 0x2032 / 0x2033 | `objects.modifiers.ModifierStack` | `base` (object index), `modifiers` (`ModifierRef(object_index, class_name, enabled=None)`, top of stack first; `bottom_up()` for apply order). |
-| Materials of overview §5 | `objects.materials.MaterialData` | `class_name` (the importer converters' names: `Standardmaterial`, `PhysicalMaterial`, `VRayMtl`, `CoronaPhysicalMtl`, `CoronaMtl`, `ai_standard_surface`, `Multimaterial`, ...), `name`, `params` (VRayMtl `diffuse` / `reflection_glossiness`, Arnold sockets), `maps` (Arnold `*_shader` sockets), `sub_materials`, `sub_ids` (None: not documented), `unassigned_maps` (by reference slot), `param_blocks`. |
+| Editable Poly, PolyMeshObject, Editable Mesh | `objects.geometry.MeshData` | `positions`, `faces` (polygons, Max corner order), `material_ids` (1-based), `smoothing_groups`, `map_channels` (`{channel: MapChannel(vertices, faces)}`), `edge_visibility` (triangle meshes), `source`, `warnings`. |
+| Box, Sphere, Cylinder, Cone, Tube, Torus, Plane, GeoSphere, Teapot, ChamferBox, ChamferCyl, Capsule, ... | `objects.primitives.PrimitiveData` | `kind`, `params` (names the live-primitive builder accepts), `extra_params`, `guessed`, `cached_mesh` (always None in the corpus), `encoding` (`"pb2"` / `"pb"`), `param_block`. |
+| Derived objects (0x2032 / 0x2033) | `objects.modifiers.ModifierStack` | `base`, `modifiers` (`ModifierRef`, top of stack first, with the context matrix and input box). |
+| Common modifiers | `objects.modifier_params.ModifierData` | `class_name`, `params` (the converters' names), `name`, `gizmo`, `guessed`, `enabled` (None: not established). |
+| Shapes | `objects.shapes.ShapeData` | `kind`, `splines` (`ShapeSpline(knots, closed)`, Bezier knots with absolute handles), `params`, interpolation, `rendering`. |
+| Lights, cameras | `objects.lights.LightData`, `CameraData` | `class_name` (importer names: `Omnilight`, `Targetspot`, `Free_Light`, `Targetcamera`, `Physical`, ...), `params`, `target_node`, `raw`. |
+| Materials | `objects.materials.MaterialData` | `class_name` (`Standardmaterial`, `PhysicalMaterial`, `ai_standard_surface`, `Multimaterial`, ...), `name`, `params` / `maps` (the converters' keys), `sub_materials`, `sub_ids` (1-based), `sub_names`, `components`. |
+| Maps | `objects.maps.MapData` | `class_name` (`Bitmaptexture`, ...), `name`, `params`, `path`, `resolved_path`, `asset_guid`, `sub_maps`. |
 | Transform controllers | tuples / `Transform` | See `objects/controllers.py`. |
 
 Maps have no documented class IDs, so they are read structurally: `objects.maps.read_map(obj, ctx)` gives a
@@ -101,8 +107,7 @@ it for the bitmap-like objects they reference. `objects.paramblock.read_param_bl
 `ParamBlockData(entries=[ParamEntry(param_id, chunk_type, raw, guessed)])` with float / int / colour readings of
 each entry's payload end.
 
-Material IDs: the disk value plus `objects.geometry.MATERIAL_ID_DISK_OFFSET` (1, assuming 0-based storage). If
-real files turn out to store 1-based IDs, that constant is the one thing to change.
+Material IDs: the disk value plus `objects.geometry.MATERIAL_ID_DISK_OFFSET` (1: stored 0-based, verified).
 
 ## maxdump
 
@@ -156,6 +161,8 @@ python -m pytest
 ```
 
 The unit tests build their fixtures in code: `tests/cfb_writer.py` writes Compound Files from the [MS-CFB]
-spec, and `tests/synth_max.py` writes chunk streams that follow the layouts in `docs/format/overview.md`. They
-test the parser against those documented assumptions only. `tests/test_corpus.py` runs the reader and
-`maxdump` on every real file in the local corpus (`tests/corpus/README.md`) and is skipped when there is none.
+spec, and `tests/synth_max.py` writes chunk streams that follow the layouts in `docs/format/overview.md` (no
+bytes from real files). Tests named `test_corpus_*` check facts about real files of the local corpus
+(`tests/corpus/README.md`; set `MX_CORPUS_DIR`) and are skipped when there is none: by default on a sample of files
+(seconds); `MX_FULL_CORPUS=1` runs them, and `tests/test_corpus.py` (reader, decoders and `maxdump`), on every
+file (several minutes).
