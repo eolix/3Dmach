@@ -63,8 +63,8 @@ def _matrix(rows):
 class SceneBuilder:
     """Builds one ``.max`` file into the current Blender scene."""
 
-    def __init__(self, context, filepath, settings, report):
-        from mx_common.units import scene_unit_in_metres
+    def __init__(self, context, filepath, settings, report, file_units=None):
+        from mx_common.units import METRES_PER_UNIT, scene_unit_in_metres
         from .materials import nodes as material_nodes, textures
 
         self.context = context
@@ -73,12 +73,17 @@ class SceneBuilder:
         self.report = report
         self.unit_scale = settings.global_scale
         units = settings.units
+        unit_scale = 1.0
         if units == 'AUTO':
-            # Scene units are not decoded yet (docs/format/overview.md, To verify #10).
-            units = "inches"
-            report.warn("Scene units are not read from .max files yet: assuming inches; "
-                        "choose the units in the import options if the scale is wrong")
-        self.unit_scale *= scene_unit_in_metres(units)
+            # maxfile's SceneUnits (docs/format/overview.md §4.3); some files store a unit that doesn't match
+            # their content, which the import options can override.
+            if file_units is not None and file_units.unit in METRES_PER_UNIT and file_units.scale > 0.0:
+                units, unit_scale = file_units.unit, file_units.scale
+            else:
+                units = "inches"
+                report.warn("The file stores no readable system unit: assuming inches; "
+                            "choose the units in the import options if the scale is wrong")
+        self.unit_scale *= scene_unit_in_metres(units, unit_scale)
         self.resolver = textures.TextureResolver(filepath, settings.texture_search_dirs)
         self.materials = material_nodes.MaterialBuilder(self.resolver, report)
         self._mesh_cache = {}           # (geometry object index, offset matrix key) -> Mesh
@@ -346,7 +351,7 @@ def import_file(operator, context, filepath, settings=None):
     report = ImportReport(source=filepath)
     try:
         with maxfile.open(filepath) as mf:
-            builder = SceneBuilder(context, filepath, settings, report)
+            builder = SceneBuilder(context, filepath, settings, report, getattr(mf, "units", None))
             objects = builder.build(mf)
     except maxfile.NotCompoundFileError:
         operator.report({'ERROR'}, "Not a .max file (no Compound File signature): {!r}".format(filepath))
