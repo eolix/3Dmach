@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -12,7 +12,7 @@ See ``docs/decisions/0007-max-ui.md`` for the design choices.
 
 bl_info = {
     "name": "Max-Style Interface",
-    "author": "PROJECT_NAME Authors",
+    "author": "3Dmach Authors",
     "version": (0, 1, 0),
     "blender": (5, 2, 0),
     "location": "3D Viewport right-click, Properties > Tool tab, Top bar",

@@ -1,4 +1,4 @@
-# PROJECT_NAME
+# 3Dmach
 
 A free, open-source, Max-compatible 3D application: Max-style navigation, quad menus, command panel and
 modelling workflow; opens `.max` files and renders their materials with Blender's renderers (Cycles / EEVEE). Built as a fork of

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -11,7 +11,7 @@ Parsing lives in the Blender-independent ``maxfile`` library (``pylibs/maxfile``
 
 bl_info = {
     "name": "Import .max Scenes",
-    "author": "PROJECT_NAME Authors",
+    "author": "3Dmach Authors",
     "version": (0, 0, 1),
     "blender": (5, 2, 0),
     "location": "File > Import > .max Scene",

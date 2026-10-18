@@ -89,5 +89,5 @@ blendcache_*
 *.blend1
 *.blend2
 
-# PROJECT_NAME: local .max test corpus, never committed (see tests/corpus/README.md).
+# 3Dmach: local .max test corpus, never committed (see tests/corpus/README.md).
 /tests/corpus/local/

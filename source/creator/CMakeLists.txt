@@ -482,7 +482,7 @@ if(WITH_PYTHON)
     PATTERN "addons_core/bl_pkg/example_extension" EXCLUDE
   )
 
-  # PROJECT_NAME: the pure-Python `.max` reader lives outside `scripts/` so it can be developed and tested
+  # 3Dmach: the pure-Python `.max` reader lives outside `scripts/` so it can be developed and tested
   # as an ordinary Python package (see `docs/decisions/0002-repo-layout.md`); install it as a module.
   install(
     DIRECTORY ${CMAKE_SOURCE_DIR}/pylibs/maxfile/maxfile

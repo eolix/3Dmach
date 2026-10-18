@@ -10,7 +10,7 @@ https://github.com/nrgsille76/io_scene_max.
 
 Hi Sebastian,
 
-I'm starting PROJECT_NAME, an open-source (GPL) fork of Blender aimed at people coming from Max-style
+I'm starting 3Dmach, an open-source (GPL) fork of Blender aimed at people coming from Max-style
 workflows. Opening `.max` files is a core part of it. Your io_scene_max importer has been the best public
 reference on the format, so thank you for it.
 

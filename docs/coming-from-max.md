@@ -1,6 +1,6 @@
 # Coming from Max
 
-A short guide for Max users. PROJECT_NAME is Blender underneath, with a Max-style layer on top: the keys,
+A short guide for Max users. 3Dmach is Blender underneath, with a Max-style layer on top: the keys,
 menus and panels you know, mapped onto Blender's tools. When something here differs from Max, the
 reference pages say how: [`keymap.md`](keymap.md), [`format/modifiers.md`](format/modifiers.md),
 [`format/materials.md`](format/materials.md).

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -12,7 +12,7 @@ The binding reference is ``docs/keymap.md``, the design ``docs/decisions/0005-ke
 
 bl_info = {
     "name": "Max-Style Keymap",
-    "author": "PROJECT_NAME Authors",
+    "author": "3Dmach Authors",
     "version": (0, 1, 0),
     "blender": (5, 2, 0),
     "location": "Preferences > Keymap, Preferences > Add-ons > Max-Style Keymap",

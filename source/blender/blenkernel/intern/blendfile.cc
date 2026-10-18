@@ -1534,7 +1534,7 @@ UserDef *BKE_blendfile_userdef_from_defaults()
         "cycles",
         "pose_library",
         "bl_pkg",
-        /* PROJECT_NAME add-ons, see `ROADMAP.md`. */
+        /* 3Dmach add-ons, see `ROADMAP.md`. */
         "mx_keymap",
         "mx_ui",
         "mx_primitives",
@@ -1547,7 +1547,7 @@ UserDef *BKE_blendfile_userdef_from_defaults()
     }
   }
 
-  /* PROJECT_NAME: the Max-style keymap (preset `scripts/presets/keyconfig/Max-Style.py`, filled by `mx_keymap`). */
+  /* 3Dmach: the Max-style keymap (preset `scripts/presets/keyconfig/Max-Style.py`, filled by `mx_keymap`). */
   STRNCPY(userdef->keyconfigstr, "Max-Style");
 
   /* Theme. */

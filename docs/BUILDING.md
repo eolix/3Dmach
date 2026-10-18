@@ -1,6 +1,6 @@
-# Building PROJECT_NAME
+# Building 3Dmach
 
-PROJECT_NAME builds exactly like Blender 5.2 LTS, so Blender's
+3Dmach builds exactly like Blender 5.2 LTS, so Blender's
 [build instructions](https://developer.blender.org/docs/handbook/building_blender/) apply. This page lists the
 steps and the differences. The project's Python add-ons and the `maxfile` parser need no build: you can develop
 and test them against an official Blender 5.2 release (see `docs/CONTRIBUTING.md`).

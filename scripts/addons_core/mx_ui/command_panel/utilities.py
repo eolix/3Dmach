@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 

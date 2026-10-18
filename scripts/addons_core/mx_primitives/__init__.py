@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -21,7 +21,7 @@ Module-level API, for other add-ons and the ``.max`` importer:
 
 bl_info = {
     "name": "Max-Style Primitives",
-    "author": "PROJECT_NAME Authors",
+    "author": "3Dmach Authors",
     "version": (0, 1, 0),
     "blender": (5, 2, 0),
     "location": "3D Viewport > Add > Mesh > Max-Style Primitives; Properties > Modifiers; Sidebar > Item",

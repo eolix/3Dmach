@@ -1,8 +1,8 @@
-# ROADMAP — PROJECT_NAME (working title)
+# ROADMAP — 3Dmach
 
 > A free, open-source 3D application that looks, feels and behaves like 3ds Max, opens `.max` files, and renders their materials with Blender's renderers (Cycles / EEVEE). Built as a hard fork of Blender.
 
-`PROJECT_NAME` is a placeholder. The final name must not contain or resemble any Autodesk trademark ("3ds Max", "Max", "Autodesk", etc.).
+The project is named **3Dmach** (decided 2026-10-18). Names must never contain or resemble an Autodesk trademark ("3ds Max", "Max", "Autodesk", etc.).
 
 ---
 
@@ -117,7 +117,7 @@ Goal: a forked, buildable, testable repo that contributors can join.
 
 - [x] Fork Blender at the chosen LTS; record version in `docs/decisions/0001-base-version.md`. *(Proposed 5.2 LTS, `v5.2.2`; branch `mx/main`. Waiting for confirmation and a hosted remote.)* *(Branch `mx/main` at `v5.2.2` on `eolix/3Dmach`.)*
 - [ ] Confirm a clean build on Windows; document build steps in `docs/BUILDING.md`.
-- [ ] Rename app branding to `PROJECT_NAME` (window title, splash text, about box). Keep Blender credit and licence notices intact.
+- [ ] Rename app branding to `3Dmach` (window title, splash text, about box). Keep Blender credit and licence notices intact.
 - [x] Create the add-on and `pylibs/maxfile` skeletons from §4.2, with `pytest` wired up.
 - [x] Headless test runner (`tests/blender/run_tests.py`): a script that runs every test in `tests/blender/` via `blender -b --factory-startup --python ...` and exits non-zero on failure.
 - [~] CI (GitHub Actions or similar): build on at least one platform, run `pytest pylibs/maxfile` and `pytest tests/corpus`, run headless Blender tests. *(`.github/workflows/tests.yml` (pytest + headless tests on official 5.2.2) runs on every `mx/**` push; `build.yml` (full Linux x64 build) is manual and not yet verified.)*
@@ -336,7 +336,7 @@ Before any C++ change (Phase 3), write `docs/design/<feature>.md` covering: the 
 
 ## 10. Open questions for the maintainer
 
-- [ ] Project name (no Autodesk trademarks). *Repository is `3Dmach`: use that as the app name?*
+- [x] Project name (no Autodesk trademarks). *3Dmach.*
 - [x] Base Blender LTS version. *Accepted: 5.2 LTS (`v5.2.2`), see `docs/decisions/0001-base-version.md`.*
 - [ ] Which renderers' materials matter most first (V-Ray, Corona, Arnold, Physical)?
 - [ ] Who can produce test files and reference exports from 3ds Max, and which Max versions?
@@ -344,7 +344,7 @@ Before any C++ change (Phase 3), write `docs/design/<feature>.md` covering: the 
 - [x] Repo hosting and CI provider. *(GitHub `eolix/3Dmach`, GitHub Actions.)* (Note: Blender 5.2 has no precompiled Linux arm64 libraries, so Linux CI should run on x64.)
 - [x] Layout changes in `docs/decisions/0002-repo-layout.md` (`pylibs/maxfile`, `mx_common` in `scripts/modules/`): OK? *(Yes.)*
 - [x] Should `.max` and other binary corpus files go through Git LFS? *(No: they are not committed at all, see `docs/decisions/0004-local-corpus.md`.)*
-- [ ] Rewrite rather than refactor `io_scene_max` *(done that way)* (`docs/decisions/0003-io-scene-max-rewrite.md`): OK?
+- [x] Rewrite rather than refactor `io_scene_max` *(done that way)* (`docs/decisions/0003-io-scene-max-rewrite.md`): OK?
 - [ ] First corpus files: `docs/format/overview.md` ends with 13 format points to verify on real files. Even three or four tiny scenes (a box, an Editable Poly with two material IDs, a Multi/Sub-Object material, a parented hierarchy) saved from two different Max versions would cover most of them.
 - [ ] Licence of the prior-art importer: `io_scene_max` 1.9.2's source headers say GPL-2.0-or-later, its extension manifest says GPL-3.0-or-later. Either is compatible, but if we copy code from it we should know which applies (ask the author when contacting them, §2a).
 

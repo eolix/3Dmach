@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -25,7 +25,7 @@ import palette  # noqa: E402
 OUTPUT = os.path.join(HERE, "mx_dark.xml")
 HEADER = (
     "<!--\n"
-    "SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors\n"
+    "SPDX-FileCopyrightText: 2026 3Dmach Authors\n"
     "\n"
     "SPDX-License-Identifier: GPL-2.0-or-later\n"
     "\n"

@@ -1,6 +1,6 @@
-# Contributing to PROJECT_NAME
+# Contributing to 3Dmach
 
-PROJECT_NAME is a fork of Blender that aims to look, feel and behave like a Max-style 3D application and to
+3Dmach is a fork of Blender that aims to look, feel and behave like a Max-style 3D application and to
 open `.max` files. [`ROADMAP.md`](../ROADMAP.md) has the plan, the hard constraints (§3) and the current status.
 Please read §3 before contributing: no Autodesk assets, no code or headers from the Max SDK, and `.max` test
 files are never committed.
@@ -73,7 +73,7 @@ if __name__ == "__main__":
 - Every source file starts with an SPDX header:
 
   ```python
-  # SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+  # SPDX-FileCopyrightText: 2026 3Dmach Authors
   #
   # SPDX-License-Identifier: GPL-2.0-or-later
   ```

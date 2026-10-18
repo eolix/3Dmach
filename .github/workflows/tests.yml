@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Fast checks for the PROJECT_NAME Python code: parser and tooling tests with plain pytest, and the
+# Fast checks for the 3Dmach Python code: parser and tooling tests with plain pytest, and the
 # headless add-on tests against an official Blender 5.2 LTS build (no fork build needed).
 name: Tests
 

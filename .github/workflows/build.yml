@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 PROJECT_NAME Authors
+# SPDX-FileCopyrightText: 2026 3Dmach Authors
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -35,9 +35,9 @@ jobs:
       - name: Headless tests on the built binary
         run: python3 tests/blender/run_tests.py --blender ../build_linux/bin/blender
       - name: Package
-        run: tar -C ../build_linux -cJf PROJECT_NAME-linux-x64.tar.xz bin
+        run: tar -C ../build_linux -cJf 3Dmach-linux-x64.tar.xz bin
       - uses: actions/upload-artifact@v4
         with:
-          name: PROJECT_NAME-linux-x64
-          path: PROJECT_NAME-linux-x64.tar.xz
+          name: 3Dmach-linux-x64
+          path: 3Dmach-linux-x64.tar.xz
           retention-days: 7
