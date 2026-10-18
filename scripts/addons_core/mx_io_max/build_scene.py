@@ -24,6 +24,7 @@ __all__ = (
     "import_file",
 )
 
+import array
 import dataclasses
 import os
 
@@ -60,6 +61,10 @@ def _matrix(rows):
     return Matrix([list(row) for row in rows])
 
 
+def _is_identity(matrix, eps=1e-5):
+    return all(abs(matrix[i][j] - (1.0 if i == j else 0.0)) < eps for i in range(4) for j in range(4))
+
+
 class SceneBuilder:
     """Builds one ``.max`` file into the current Blender scene."""
 
@@ -87,6 +92,11 @@ class SceneBuilder:
         self.resolver = textures.TextureResolver(filepath, settings.texture_search_dirs)
         self.materials = material_nodes.MaterialBuilder(self.resolver, report)
         self._mesh_cache = {}           # (geometry object index, offset matrix key) -> Mesh
+        self._notes = {}                # Approximation note -> names of the objects it applies to.
+        self._world_from = None         # Name of the node the World was made from.
+        self._world_directions = {}     # Object name -> world direction its -Z must point along (sun systems).
+        self.cameras = []               # (object, CameraDesc).
+        self._physical_lights = 0       # Lights in physical units (photometric, sun systems).
         self._material_cache = {}       # material object index -> list of Blender materials (slots)
         self.objects = {}               # node index -> Blender object
 
@@ -116,9 +126,44 @@ class SceneBuilder:
                 obj.parent = self.objects[node.parent.index]
                 obj.matrix_parent_inverse = Matrix.Identity(4)
             obj.matrix_basis = self._scaled(_matrix(node.local_matrix()))
+        for node in scene.nodes:
+            obj = self.objects.get(node.index)
+            if obj is not None:
+                self._link_target(scene, node, obj)
+                self._apply_node_state(node, obj)
+        self._aim_directions()
+        self._finish_cameras()
+        self._flush_notes()
         for warning in mf.warnings:
             self.report.warn(warning)
         return list(self.objects.values())
+
+    def _aim_directions(self):
+        """Lights whose direction is given in world space (sun systems): turn them so -Z points along it."""
+        from mathutils import Vector
+        if not self._world_directions:
+            return
+        self.context.view_layer.update()
+        for name, direction in self._world_directions.items():
+            obj = bpy.data.objects.get(name)
+            if obj is None or Vector(direction).length == 0.0:
+                continue
+            rot = (-Vector(direction)).to_track_quat('Z', 'Y').to_matrix().to_4x4()
+            world = obj.matrix_world
+            obj.matrix_world = Matrix.Translation(world.translation) @ rot
+
+    def _finish_cameras(self):
+        """Make the first camera the scene camera (when the scene has none) and take its exposure."""
+        from . import lights
+        scene = self.context.scene
+        if not self.cameras or scene.camera is not None:
+            return
+        obj, desc = self.cameras[0]
+        scene.camera = obj
+        if desc.exposure_value is not None and self._physical_lights:
+            scene.view_settings.exposure = lights.exposure_from_ev(desc.exposure_value)
+            self.note(obj.name, "Physical camera exposure EV {:g} set as the scene exposure ({:+.2f})".format(
+                desc.exposure_value, scene.view_settings.exposure))
 
     @staticmethod
     def _parents_first(roots):
@@ -157,12 +202,20 @@ class SceneBuilder:
         elif kind in {"LightData", "CameraData"}:
             obj = self._build_light_or_camera(name, decoded)
         if obj is None:
+            from .node_state import HELPER_CLASSES
             obj = self._new_object(name, None)
-            obj.empty_display_type = 'PLAIN_AXES'
-            obj.empty_display_size = 0.2
-            if target is not None:
-                self.report.add_unsupported("object", target.class_label())
-            self.report.add_imported("empties")
+            label = target.class_label() if target is not None else None
+            helper = HELPER_CLASSES.get(label)
+            if helper is not None:
+                obj.empty_display_type = helper[0]
+                obj.empty_display_size = min(max(helper[1] * self.unit_scale, 0.01), 0.5)
+                self.report.add_imported("helpers")
+            else:
+                obj.empty_display_type = 'PLAIN_AXES'
+                obj.empty_display_size = 0.2
+                if target is not None:
+                    self.report.add_unsupported("object", label)
+                self.report.add_imported("empties")
 
         if obj.type == 'MESH':
             if stack is not None:
@@ -175,18 +228,93 @@ class SceneBuilder:
     def _build_light_or_camera(self, name, decoded):
         from . import lights
         if _kind(decoded) == "LightData" and self.settings.import_lights:
-            desc = lights.light_from_params(decoded.class_name, dict(decoded.params, name=name))
+            params = dict(decoded.params, name=name)
+            world = lights.world_from_light(decoded.class_name, params)
+            if world is not None:
+                self._set_world(name, world)
+            desc = lights.light_from_params(decoded.class_name, params, unit_scale=self.unit_scale)
             if desc is None:
-                return None
+                if world is None:
+                    return None
+                obj = self._new_object(name, None)      # The light's node, kept as a helper.
+                obj.empty_display_type = 'SPHERE'
+                obj.empty_display_size = min(max(5.0 * self.unit_scale, 0.05), 0.5)
+                obj["mx_source_class"] = decoded.class_name
+                return obj
             self.report.add_imported("lights")
+            if desc.source_class in lights.PHYSICAL_CLASSES:
+                self._physical_lights += 1
             for note in desc.notes:
-                self.report.warn("{:s}: {:s}".format(name, note))
-            return lights.create_light(desc, self.collection, self.unit_scale)
+                self.note(name, note)
+            obj = lights.create_light(desc, self.collection, self.unit_scale)
+            if desc.direction is not None:
+                self._world_directions[obj.name] = desc.direction
+            return obj
         if _kind(decoded) == "CameraData" and self.settings.import_cameras:
             desc = lights.camera_from_params(decoded.class_name, dict(decoded.params, name=name))
             self.report.add_imported("cameras")
-            return lights.create_camera(desc, self.collection, self.unit_scale)
+            obj = lights.create_camera(desc, self.collection, self.unit_scale)
+            self.cameras.append((obj, desc))
+            return obj
         return None
+
+    def _set_world(self, name, desc):
+        from . import lights
+        if self._world_from is not None:
+            self.note(name, "a second sky / environment light is not imported (the World comes from {!r})".format(
+                self._world_from))
+            return
+        self._world_from = name
+        lights.setup_world(self.context.scene, desc)
+        self.report.add_imported("world")
+        for note in desc.notes:
+            self.note(name, note)
+        self.note(name, "{:s} imported as the World".format(desc.source_class or "sky light"))
+
+    def note(self, name, text):
+        """An approximation worth reporting; the same note for several objects is reported once, with a count."""
+        self._notes.setdefault(text, []).append(name)
+
+    def _flush_notes(self):
+        for text, names in self._notes.items():
+            shown = ", ".join(repr(n) for n in names[:3]) + (", ..." if len(names) > 3 else "")
+            self.report.warn("{:s} ({:d}: {:s})".format(text, len(names), shown))
+        self._notes.clear()
+
+    # Node state.
+
+    def _link_target(self, scene, node, obj):
+        """A Look At controller (target cameras / lights and any node aimed at a target) as a Track To constraint."""
+        from . import lights
+        try:
+            from maxfile.objects.lights import target_node_of
+        except ImportError:
+            return
+        target = target_node_of(scene, node)
+        if target is None:
+            return
+        target_obj = self.objects.get(target.index)
+        if target_obj is None or target_obj is obj:
+            return
+        roll = 0.0
+        look_at = scene.decode(node.controller) if node.controller is not None else None
+        if look_at is not None and isinstance(getattr(look_at, "roll", None), float):
+            roll = look_at.roll
+        lights.add_target_constraint(obj, target_obj, roll=roll)
+        obj["mx_target"] = target_obj.name
+        self.report.add_imported("targets")
+
+    def _apply_node_state(self, node, obj):
+        from . import node_state
+        color = node_state.wire_color(getattr(node, "wire_color", None))
+        if color is not None:
+            obj.color = color
+        if getattr(node, "is_frozen", False):
+            node_state.apply_frozen(obj)
+            self.report.add_imported("frozen objects")
+        if getattr(node, "is_hidden", False):
+            node_state.apply_hidden(obj)
+            self.report.add_imported("hidden objects")
 
     # Geometry.
 
@@ -197,12 +325,16 @@ class SceneBuilder:
         if mesh is not None:
             self.report.add_imported("instances")
             return mesh
+        live = False
         if _kind(decoded) == "PrimitiveData":
-            mesh = self._primitive_mesh(decoded, name)
+            # A live primitive regenerates from its parameters, so it can't hold an object offset: only
+            # primitives whose pivot is at their object origin stay live (90 % of the corpus).
+            mesh, live = self._primitive_mesh(decoded, name, live=_is_identity(offset))
         else:
             mesh = self._mesh_from_data(decoded, name)
-        # Object offset: bake it into the geometry so the Blender origin sits at the Max pivot.
-        mesh.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
+        if not live:
+            # Object offset: bake it into the geometry so the Blender origin sits at the Max pivot.
+            mesh.transform(self._scaled(offset) @ Matrix.Scale(self.unit_scale, 4))
         self._mesh_cache[key] = mesh
         self.report.add_imported("meshes")
         return mesh
@@ -228,28 +360,60 @@ class SceneBuilder:
         mesh["mx_material_ids"] = list(data.material_ids) if data.material_ids else [1] * len(faces)
         return mesh
 
-    def _primitive_mesh(self, data, name):
-        # Max's own cached mesh is exact; rebuilding a live primitive would use default segment counts
-        # until those parameters are decoded.
+    def _primitive_mesh(self, data, name, live=True):
+        """
+        ``(mesh, is_live)`` for a primitive: a live primitive (sizes in metres) when the Max-Style Primitives
+        add-on is enabled and ``live`` allows it, else a plain mesh in scene units (the caller scales it).
+        """
+        from .primitives import convert as primitive_convert
         if data.cached_mesh is not None:
-            return self._mesh_from_data(data.cached_mesh, name)
-        primitives = None
+            # Max's own cached mesh is exact (no corpus file has one, see docs/format/overview.md §6.4).
+            return self._mesh_from_data(data.cached_mesh, name), False
         try:
-            import mx_primitives as primitives
-        except ImportError:
-            pass
-        if primitives is not None and hasattr(primitives, "create_primitive_object"):
-            try:
-                obj = primitives.create_primitive_object(name, data.kind, dict(data.params))
-            except (TypeError, ValueError, KeyError) as ex:
-                self.report.warn("{:s}: could not rebuild live {:s} ({:s})".format(name, data.kind, str(ex)))
-            else:
+            import mx_primitives
+            geometry = mx_primitives.geometry
+        except (ImportError, AttributeError):
+            self.report.add_unsupported("primitive", data.kind)
+            return bpy.data.meshes.new(name), False
+        registered = hasattr(bpy.types.Mesh, "mx_primitive") and hasattr(mx_primitives, "create_primitive_object")
+        live = live and registered
+        kind, params, notes = primitive_convert.builder_params(
+            data.kind, dict(data.params), geometry.PARAMETERS, self.unit_scale if live else 1.0)
+        for note in notes:
+            self.report.warn("{:s}: {:s}".format(name, note))
+        if kind is None:
+            self.report.add_unsupported("primitive", data.kind)
+            return bpy.data.meshes.new(name), False
+        try:
+            if live:
+                obj = mx_primitives.create_primitive_object(name, kind, params, collection=self.collection)
                 mesh = obj.data
                 bpy.data.objects.remove(obj)
+                ids = array.array("i", [0]) * len(mesh.polygons)
+                mesh.polygons.foreach_get("material_index", ids)
+                mesh["mx_material_ids"] = [i + 1 for i in ids]
                 self.report.add_imported("live primitives")
-                return mesh
-        self.report.add_unsupported("primitive", data.kind)
-        return bpy.data.meshes.new(name)
+                return mesh, True
+            mesh = self._mesh_from_generated(geometry.generate(kind, **params), name)
+        except (TypeError, ValueError, KeyError) as ex:
+            self.report.warn("{:s}: could not rebuild {:s} ({:s})".format(name, data.kind, str(ex)))
+            return bpy.data.meshes.new(name), False
+        self.report.add_imported("static primitives")
+        return mesh, False
+
+    def _mesh_from_generated(self, data, name):
+        """A plain mesh from ``mx_primitives.geometry.MeshData`` (scene units)."""
+        from . import mesh_build, smoothing
+        from .materials.nodes import uv_layer_name
+        faces = [tuple(face) for face in data.faces]
+        sharp_edges, sharp_faces = smoothing.sharp_from_smoothing_groups(faces, list(data.smoothing_groups))
+        uv_layers = []
+        if data.uvs is not None:
+            uv_layers.append((uv_layer_name(1), [tuple(uv) for face in data.uvs for uv in face]))
+        mesh = mesh_build.build_mesh(name, data.vertices, faces, uv_layers=uv_layers, sharp_edges=sharp_edges,
+                                     sharp_faces=sharp_faces)
+        mesh["mx_material_ids"] = [i + 1 for i in data.material_ids]
+        return mesh
 
     def _build_stack(self, obj, scene, modifiers):
         """Add Max modifiers (scene objects, bottom of the stack first) as Blender modifiers."""
