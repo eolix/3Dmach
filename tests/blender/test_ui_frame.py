@@ -750,6 +750,10 @@ class MaximizeTest(unittest.TestCase):
     def test_poll_outside_max_layout(self):
         self.assertFalse(bpy.ops.mx_ui.max_viewport_maximize.poll())
 
+    def test_registered_name_used_for_handoff(self):
+        # mx_keymap and the status bar look the operator up by its RNA name before handing Alt+W over.
+        self.assertTrue(hasattr(bpy.types, "MX_UI_OT_max_viewport_maximize"))
+
 
 if __name__ == "__main__":
     _runner_util.main()

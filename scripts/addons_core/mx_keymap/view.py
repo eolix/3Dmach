@@ -164,7 +164,7 @@ class MX_KEYMAP_OT_viewport_maximize(Operator):
 
     def execute(self, context):
         # In the Max Layout (mx_ui), maximize within the viewport block and keep the rest of the interface.
-        if hasattr(bpy.types, "MXUI_OT_max_viewport_maximize") and bpy.ops.mx_ui.max_viewport_maximize.poll():
+        if hasattr(bpy.types, "MX_UI_OT_max_viewport_maximize") and bpy.ops.mx_ui.max_viewport_maximize.poll():
             return bpy.ops.mx_ui.max_viewport_maximize()
         area = context.area
         key = area.as_pointer()
