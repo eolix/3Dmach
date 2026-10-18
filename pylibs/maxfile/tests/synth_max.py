@@ -217,7 +217,7 @@ def _pb2_value(kind, value):
     if kind in ("string", "filename"):
         if value is None:
             return u32(0xFFFFFFFF)
-        raw = value.encode("utf-8") + b"\0"
+        raw = (value + "\0").encode("utf-16-le")     # 0x100E records hold UTF-16 (0x000E ones 8-bit text).
         return u32(len(raw)) + raw
     fmt = _PB2_FORMATS[kind]
     return struct.pack(fmt, *(value if isinstance(value, (tuple, list)) else (value,)))

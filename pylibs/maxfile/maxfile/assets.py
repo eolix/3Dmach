@@ -3,121 +3,163 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-The asset metadata stream: bitmap file paths in newer files (``docs/format/overview.md`` §5.2).
+The asset metadata stream: the external files a scene uses (bitmaps, IES files, animation files, ...).
 
-This is the least understood part of the format. The overview only says that the stream isn't a chunk tree,
-that the prior-art importer finds it by directory position rather than by name, and that it splits the data on
-runs of zero bytes and pairs "headers" with UTF-16 path strings. This module does that, **best effort**, and
-keeps the raw pieces so the stream can be studied with ``maxdump``. Nothing here should be relied on before it is
-checked on real files.
+Bitmaps don't store their file path themselves: their ``filename`` parameter holds an **asset ID** (a GUID, see
+:mod:`maxfile.objects.maps`) and the path is looked up here. The table is a stream of its own, found **by name**:
+
+- ``FileAssetMetaData3`` (530 corpus files, Max 2010-2018) and ``FileAssetMetaData2`` (90 files, Max 2008-2009);
+  3 corpus files (animation clips without materials) have neither. No file has both.
+- The stream is a plain sequence of entries, not a chunk tree::
+
+      u8[16]  asset ID (a Windows GUID in its binary layout: u32, u16, u16, u8[8])
+      string  asset type ("Bitmap", "Animation", "Photometric", "RenderOutput", "Sound", "VideoPost", "Other")
+      string  file path as the user picked it (absolute, or relative to the project folder)
+      string  (``FileAssetMetaData3`` only) the absolute path it last resolved to, often empty or the same
+
+  where ``string`` = ``u32 character count`` + that many UTF-16LE characters + a 16-bit NUL terminator.
+
+Verified on the whole corpus: this layout consumes every byte of all 620 streams (1,000 entries in version 3
+streams, 453 in version 2), every entry's terminators are where the counts say, and 1,753 of the 1,779 corpus
+Bitmaps find their asset ID here (the other 26 have no file loaded). The type strings and the meaning of the two
+version-3 paths come from the values (e.g. ``Scenes\\SubDivSurfaces\\Flipper.jpg`` and
+``P:\\Projects\\Sample Files\\Scenes\\SubDivSurfaces\\Flipper.jpg``).
 """
 
 __all__ = (
+    "ASSET_STREAMS",
     "AssetEntry",
     "AssetMetadata",
+    "format_guid",
     "find_asset_stream",
     "parse_asset_metadata",
     "read_asset_metadata",
 )
 
 import dataclasses
-import re
+import struct
+import uuid
 
 from .errors import MaxFileError
 
-# Streams known to be chunk trees, never the asset metadata (overview.md §1).
-_CHUNK_STREAMS = {"SCENE", "CLASSDIRECTORY3", "CLASSDIRECTORY", "DLLDIRECTORY", "CLASSDATA", "CONFIG",
-                  "VIDEOPOSTQUEUE"}
-# Unverified (overview.md §1): the importer takes the directory entry with the highest index, capped at 11.
-_MAX_ENTRY_ID = 11
-# Unverified (overview.md §5.2): the stream is split on runs of zero bytes. "00 00 00": the end of a UTF-16
-# string (high byte of the last character plus a 16-bit terminator) is the shortest run that separates fields.
-_SPLIT = re.compile(b"\x00{3,}")
+# Stream name -> number of strings per entry (verified, see the module docstring).
+ASSET_STREAMS = {"FileAssetMetaData3": 3, "FileAssetMetaData2": 2}
+GUID_SIZE = 16
+
+
+def format_guid(raw: bytes) -> str:
+    """
+    An asset ID as text: ``6c009b10-b7e1-4141-86b8-d9f72423860f`` for the stored bytes ``10 9B 00 6C E1 B7 41 41
+    86 B8 ...`` (a Windows GUID: u32, u16, u16 little-endian, then 8 bytes; the same form as
+    :class:`maxfile.objects.paramblock.AssetRef`).
+    """
+    return str(uuid.UUID(bytes_le=bytes(raw[:GUID_SIZE])))
+
+
+def _guid_key(guid) -> str:
+    """Normalise an asset ID given as raw bytes, an ``AssetRef`` (``.raw``/``.guid``) or text (any case, braces)."""
+    raw = getattr(guid, "raw", None)
+    if raw:
+        return format_guid(raw)
+    if isinstance(guid, (bytes, bytearray, memoryview)):
+        return format_guid(guid)
+    text = getattr(guid, "guid", guid)
+    return str(text).strip("{}").lower()
 
 
 @dataclasses.dataclass(slots=True)
 class AssetEntry:
-    """A path string found in the stream, with the bytes before it ("header", meaning unknown)."""
-    index: int          # Position among the paths found. Whether asset indices count this way is a guess.
-    header: bytes
-    path: str
-    offset: int         # Offset of the path in the stream.
+    """One asset: its ID, type and path(s)."""
+    index: int                      # Position in the stream.
+    guid: str                       # format_guid() of the asset ID.
+    kind: str                       # "Bitmap", "Animation", "Photometric", ...
+    path: str                       # The path as stored (absolute, or relative to the project folder).
+    resolved_path: str | None       # FileAssetMetaData3 only: the absolute path it last resolved to (None if empty).
+    offset: int                     # Byte offset of the entry in the stream.
 
 
 @dataclasses.dataclass(slots=True)
 class AssetMetadata:
-    stream: str | None          # Name of the stream read, None when none was found.
+    stream: str | None              # Name of the stream read, None when the file has none.
     entries: list[AssetEntry]
     warnings: list[str] = dataclasses.field(default_factory=list)
+    _by_guid: dict = dataclasses.field(default_factory=dict, repr=False)
+
+    def __post_init__(self):
+        for entry in self.entries:
+            self._by_guid.setdefault(entry.guid, entry)
+
+    def get(self, guid) -> AssetEntry | None:
+        """The entry for an asset ID (raw 16 bytes, a paramblock ``AssetRef`` or GUID text), or None."""
+        return self._by_guid.get(_guid_key(guid))
 
     def path(self, asset_index: int) -> str | None:
-        """The path at ``asset_index`` (guess: indices count the paths in stream order), or None."""
+        """The path of the entry at position ``asset_index`` in the stream, or None."""
         if 0 <= asset_index < len(self.entries):
             return self.entries[asset_index].path
         return None
 
 
-def _as_path(segment: bytes) -> str | None:
-    """``segment`` as UTF-16LE text when it plausibly is a file path, else None."""
-    for start in (0, 1):    # The zero run may have eaten the high byte of a character before the string.
-        data = segment[start:]
-        if len(data) % 2:
-            data += b"\0"
-        if len(data) < 6:
-            continue
-        try:
-            text = data.decode("utf-16-le").rstrip("\0")
-        except UnicodeDecodeError:
-            continue
-        if not text.isprintable() or "\0" in text:
-            continue
-        ascii_count = sum(1 for c in text if " " <= c <= "~")
-        if ascii_count * 2 < len(text):
-            continue
-        if any(sep in text for sep in ("\\", "/")) or re.search(r"\.[A-Za-z0-9]{2,5}$", text):
-            return text
-    return None
+def _string(data, pos):
+    if pos + 4 > len(data):
+        raise MaxFileError("string length at offset {:d} runs past the end".format(pos))
+    (count,) = struct.unpack_from("<I", data, pos)
+    pos += 4
+    end = pos + 2 * count
+    if end + 2 > len(data):
+        raise MaxFileError("string of {:d} characters at offset {:d} runs past the end".format(count, pos))
+    if data[end:end + 2] != b"\0\0":
+        raise MaxFileError("string at offset {:d} has no terminator".format(pos))
+    return bytes(data[pos:end]).decode("utf-16-le", errors="replace"), end + 2
 
 
-def parse_asset_metadata(data: bytes) -> list[AssetEntry]:
-    """Split the stream as described in overview.md §5.2 and pair each path with the segment before it."""
-    entries = []
-    previous = b""
+def parse_asset_metadata(data: bytes, strings: int = 3) -> tuple[list[AssetEntry], list[str]]:
+    """
+    Read the entries of an asset metadata stream (``strings`` = 3 for ``FileAssetMetaData3``, 2 for version 2).
+
+    Returns ``(entries, warnings)``; reading stops at the first entry that doesn't fit, keeping the ones before.
+    """
+    entries, warnings = [], []
     pos = 0
-    for match in list(_SPLIT.finditer(data)) + [None]:
-        end = match.start() if match is not None else len(data)
-        segment = data[pos:end]
-        if segment:
-            path = _as_path(segment)
-            if path is not None:
-                entries.append(AssetEntry(len(entries), previous, path, pos))
-                previous = b""
-            else:
-                previous = segment
-        if match is not None:
-            pos = match.end()
-    return entries
+    while pos < len(data):
+        start = pos
+        if pos + GUID_SIZE > len(data):
+            warnings.append("asset metadata: {:d} trailing bytes at offset {:d}".format(len(data) - pos, pos))
+            break
+        guid = format_guid(data[pos:pos + GUID_SIZE])
+        pos += GUID_SIZE
+        try:
+            values = []
+            for _ in range(strings):
+                text, pos = _string(data, pos)
+                values.append(text)
+        except MaxFileError as ex:
+            warnings.append("asset metadata entry {:d}: {:s}".format(len(entries), str(ex)))
+            break
+        resolved = values[2] if strings >= 3 and values[2] else None
+        entries.append(AssetEntry(len(entries), guid, values[0], values[1], resolved, start))
+    return entries, warnings
 
 
 def find_asset_stream(container):
-    """
-    The asset metadata stream candidate, or None.
-
-    Like the prior-art importer, the directory entry with the highest index up to ``_MAX_ENTRY_ID``; unlike it,
-    streams known to be chunk trees are skipped (our own guard, also unverified).
-    """
-    candidates = [e for e in container.streams()
-                  if e.id <= _MAX_ENTRY_ID and e.path_str.upper() not in _CHUNK_STREAMS]
-    return max(candidates, key=lambda e: e.id) if candidates else None
+    """The directory entry of the asset metadata stream (``FileAssetMetaData3`` or ``2``), or None."""
+    for name in ASSET_STREAMS:
+        entry = container.find(name)
+        if entry is not None:
+            return entry
+    return None
 
 
 def read_asset_metadata(container) -> AssetMetadata:
     """Find and parse the asset metadata stream of a :class:`~maxfile.container.CompoundFile`."""
     entry = find_asset_stream(container)
     if entry is None:
-        return AssetMetadata(None, [], ["no asset metadata stream candidate"])
+        return AssetMetadata(None, [])
+    name = entry.path_str
     try:
         data = container.read_stream(entry.path)
     except MaxFileError as ex:
-        return AssetMetadata(entry.path_str, [], ["asset metadata stream {!r}: {:s}".format(entry.path_str, str(ex))])
-    return AssetMetadata(entry.path_str, parse_asset_metadata(data))
+        return AssetMetadata(name, [], ["asset metadata stream {!r}: {:s}".format(name, str(ex))])
+    strings = next((n for key, n in ASSET_STREAMS.items() if key.upper() == entry.name.upper()), 3)
+    entries, warnings = parse_asset_metadata(data, strings)
+    return AssetMetadata(name, entries, warnings)

@@ -28,7 +28,8 @@ class of what they reference): 0 float, 1 int, 2 RGB colour (3 floats), 3 point 
 5 angle (float, radians), 6 percentage (float fraction: 0.1 = 10 %), 7 world-space distance (float), 8 string,
 9 file name, 12 time (int), 13 radio button index (int), 14 material, 15 texture map, 16 one byte (meaning
 unknown), 17 node, 18 any reference, 19 index (int), 20 matrix (52 bytes), 23 RGBA colour (4 floats). Strings are
-``u32 length`` (0xFFFFFFFF = none) then that many bytes of 8-bit text including a terminating NUL. A length of
+``u32 byte length`` (0xFFFFFFFF = none) then the text including a terminating NUL: UTF-16LE in ``0x100E`` records
+(18,145 corpus values), 8-bit in the older ``0x000E`` records (881). A length of
 0xFFFFFFFE (1,754 file-name parameters in the corpus) means the value is an asset reference: the record ends there
 and the next chunk of the block, a ``0x000F`` container, holds the asset's 16-byte ID in ``0x0002`` (the IDs the
 ``FileAssetMetaData3`` stream lists with their paths). Such values are :class:`AssetRef` objects. Records of a type
@@ -153,8 +154,8 @@ class ParamBlockData:
         return [self.params[k] for k in sorted(self.params)]
 
 
-def _string(data, pos):
-    """``u32 length`` + bytes (with NUL). Returns ``(text or None, new_pos)``."""
+def _string(data, pos, wide):
+    """``u32 byte length`` + text (with NUL). Returns ``(text or None, new_pos)``."""
     (n,) = struct.unpack_from("<I", data, pos)
     pos += 4
     if n == NULL:
@@ -164,6 +165,10 @@ def _string(data, pos):
     raw = bytes(data[pos:pos + n])
     if len(raw) < n:
         raise DecodeError("string of {:d} bytes runs past the record".format(n))
+    if wide:
+        if len(raw) % 2:
+            raw = raw[:-1]
+        return raw.decode("utf-16-le", errors="replace").split("\0", 1)[0], pos + n
     return raw.split(b"\0", 1)[0].decode("utf-8", errors="replace"), pos + n
 
 
@@ -173,7 +178,7 @@ def _type_name(code):
     return "table:" + name if code & TAB else name
 
 
-def _read_value(base, data, pos, is_ref, inline_ref):
+def _read_value(base, data, pos, is_ref, inline_ref, wide=True):
     """One value of type ``base`` at ``pos``. Returns ``(value, new_pos, uses_slot)``."""
     if is_ref:
         if inline_ref:
@@ -181,7 +186,7 @@ def _read_value(base, data, pos, is_ref, inline_ref):
             return (None if index == NULL else index), pos + 4, False
         return None, pos, True
     if base in (8, 9):
-        text, pos = _string(data, pos)
+        text, pos = _string(data, pos, wide)
         return text, pos, False
     fmt = _FORMATS.get(base)
     if fmt is None:
@@ -201,7 +206,7 @@ def _read_value(base, data, pos, is_ref, inline_ref):
     return value, pos + size, False
 
 
-def _record(data):
+def _record(data, wide=True):
     """Parse one ParamBlock2 record. Returns ``(Param, slot_requests)`` where each request is ``(param, item)``."""
     if len(data) < 15:
         raise DecodeError("parameter record of {:d} bytes".format(len(data)))
@@ -227,21 +232,21 @@ def _record(data):
                 requests.append((param, item))
                 param.animated = True
             else:
-                value, pos, uses_slot = _read_value(base, data, pos, is_ref, inline_ref)
+                value, pos, uses_slot = _read_value(base, data, pos, is_ref, inline_ref, wide)
                 values.append(value)
                 if uses_slot:
                     requests.append((param, item))
             param.controllers.append(None)
         param.value = values
     elif is_ref:
-        value, pos, uses_slot = _read_value(base, data, pos, True, inline_ref)
+        value, pos, uses_slot = _read_value(base, data, pos, True, inline_ref, wide)
         if inline_ref and len(data) == 15:
             value = None        # Inline reference without data: none.
         param.value = value
         if uses_slot:
             requests.append((param, None))
     elif value_flags & VALUE_INLINE:
-        param.value, pos, _ = _read_value(base, data, pos, False, False)
+        param.value, pos, _ = _read_value(base, data, pos, False, False, wide)
     else:
         param.animated = True
         requests.append((param, None))
@@ -295,7 +300,7 @@ def read_param_block2(obj, ctx=None) -> ParamBlockData:
         if child.type not in PB2_RECORDS or child.is_container:
             continue
         try:
-            param, wanted = _record(child.data)
+            param, wanted = _record(child.data, wide=child.type == 0x100E)
         except (DecodeError, struct.error) as ex:
             block.problems.append("record at 0x{:X}: {:s}".format(child.offset, str(ex)))
             # Slot numbering after an unreadable record is unknown: stop assigning references.
