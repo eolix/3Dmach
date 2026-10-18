@@ -1,6 +1,6 @@
 # Investigating a .max file with maxdump
 
-`maxdump` prints what `maxfile` sees in a `.max` file. It is the main tool for checking the assumptions in
+`maxdump` prints what `maxfile` sees in a `.max` file. It is the main tool for checking the layouts in
 [overview.md](overview.md) on real files and for working out classes we don't support yet.
 
 ```sh
@@ -35,13 +35,13 @@ our header rule is wrong for it; the asset metadata stream (overview §5.2) is e
 
 ```
 == Class directory: ClassDirectory3 (7 classes) ==
-  #1    class=0x00002005, 0x00000000 (0x0000000000002005)  super=0x09008003  dll=0xFFFFFFFF(none)  objects=1  name="PRS"  known="Position/Rotation/Scale"  decoder="Position/Rotation/Scale"
+  #1    class=0x00002005, 0x00000000 (0x0000000000002005)  super=0x00009008  dll=0xFFFFFFFF(none)  objects=1  name="PRS"  known="Position/Rotation/Scale"  decoder="Position/Rotation/Scale"
   #6    class=0x00001234, 0x00005678 (0x0000567800001234)  super=0x00000010  dll=#0  objects=1  name="Weird"  known=-
 ```
 
 `class=` is the class ID as two words (the order they are stored in), then the single 64-bit form used in
-overview.md. `dll=` is the DLL directory entry, or `0x...(none)` when the index is outside the DLL directory
-(built-in classes, presumably). `objects=` counts scene objects of the class. `name=` is the name stored in the
+overview.md. `dll=` is the DLL directory entry, or `0x...(none)` for built-in classes (`0xFFFFFFFF`,
+`0xFFFFFFFE`). The DLL directory section lists each plugin's file name and description. `objects=` counts scene objects of the class. `name=` is the name stored in the
 file; `known=` is the name in our registry (`maxfile/registry.py`), and `decoder=` appears when we can decode it.
 
 ```
@@ -57,7 +57,7 @@ warnings). `offset_pos=` / `offset_rot_wxyz=` / `offset_scale=` are the object o
 Node lines also show `geometry=` when the node's object is a modifier-stack wrapper (the base object found
 through it) and `modifiers=` with the number of modifiers.
 
-Then come the **decoded** sections (all from the unverified layouts of overview.md §5-6):
+Then come the **decoded** sections (geometry, primitives, modifier stacks, lights and cameras, shapes, materials):
 
 ```
 == Geometry (2) ==
@@ -65,7 +65,7 @@ Then come the **decoded** sections (all from the unverified layouts of overview.
 == Primitives (1) ==
   [5] Box  kind=BOX  length=10  width=20  height=30  encoding=0x0100+leaf+record  cached_mesh=(vertices=3 ...)
 == Modifier stacks (1, modifiers listed top of stack first) ==
-  [3] Derived object? (io_scene_max: "shell")  base=[0] Editable Poly  modifiers=[2] Mod
+  [3] Derived Object  base=[0] Editable Poly  modifiers=[2] Mod
 == Materials used by nodes (3 rows) ==
   [12] Multimaterial (no name)  sub_materials=2  sub_ids=None
     [9] VRayMtl "Wood"  diffuse=(0.5, 0.25, 0.125)  reflection_glossiness=0.8  slot1=[7] Bitmap? path="C:\\maps\\wood.png"
@@ -89,9 +89,10 @@ maxdump scene.max --object 9 --decode --json    # the full dataclass as JSON
 Prints the object's references, its node data if it is a node, the value its decoder returns (lists cut after a
 few items in text mode, complete in JSON), and two generic readings that work for any class:
 
-- **as a parameter block**: every leaf whose payload starts with a u16, with that u16 as `id=` and the payload's
-  end read as `float=`, `int=`, `color=` and `rgba_color=` (overview §5.1's rule). Only one of these readings is
-  right for a given entry, and which one is for you to work out;
+- **parameter blocks**: the object itself if it is a ParamBlock2 / ParamBlock, else every parameter block it
+  references, with each parameter's ID, type and value (`id=10 percent=0.1`, references as `[12] Bitmap`,
+  `ctrl=[5] Bezier Float` for animated values, `asset:<id>` for asset references). Parameter names aren't stored in
+  files; changing one value in Max and comparing (below) tells you which ID is which;
 - **as a map**, when the object or one of its references holds a bitmap path (`0x1230`) or asset index
   (`0x1260`, overview §5.2).
 
@@ -156,8 +157,8 @@ For parameters, `--decode` on the material or primitive's parameter-block object
 
 ## Checking the overview's assumptions
 
-The code marks every format assumption it relies on with `# Unverified (overview.md §N)`; list them with
-`grep -rn Unverified pylibs/maxfile/maxfile`. The corpus test (`pytest pylibs/maxfile/tests/test_corpus.py -s`)
+The code marks what could only be inferred with `# Guess:`; list them with
+`grep -rn Guess pylibs/maxfile/maxfile`. The corpus test (`pytest pylibs/maxfile/tests/test_corpus.py -s`)
 prints object, node and unknown-class counts and the number of warnings for every corpus file, and
 `maxdump` shows the details. Things to look for first:
 

@@ -24,8 +24,10 @@ __all__ = (
     "SceneObject",
     "Node",
     "Scene",
+    "SceneUnits",
     "DecodeContext",
     "parse_scene",
+    "read_units",
 )
 
 import collections
@@ -37,34 +39,69 @@ from . import registry
 from .chunks import Chunk, ChunkStream, f32s, u32s
 from .classes import ClassDirectory, ClassEntry, ClassID
 from .errors import DecodeError, MaxFileError
-from .transform import IDENTITY, Matrix4, Transform, matmul, quat_from_max
+from .transform import IDENTITY, Matrix4, Transform, look_at_matrix3, matmul, matrix3_to_quat, quat_from_max
 
 SCENE_STREAM = "Scene"
 
-# Reference chunks. Unverified (overview.md §3).
+# Reference chunks (verified on the corpus, overview.md §3).
 CHUNK_REFS_ORDERED = 0x2034     # u32[] object indices, slot i = element i
-CHUNK_REFS_SPARSE = 0x2035      # u32 (unknown, skipped), then (u32 slot, u32 object index) pairs
-NULL_INDEX = 0xFFFFFFFF         # Presumably the explicit "no reference" (overview.md §3).
+CHUNK_REFS_SPARSE = 0x2035      # u32 slot count, then (u32 slot, u32 object index) pairs
+NULL_INDEX = 0xFFFFFFFF         # "No reference" (0x2034 lists it for empty slots).
 
-# Node chunks. Unverified (overview.md §4).
-CHUNK_NODE_PARENT = 0x0960      # u32 parent object index, ...
+# Node chunks (overview.md §4). Verified on 40,948 corpus nodes: every node has 0x0960, 0x0962 and the offset chunks.
+CHUNK_NODE_PARENT = 0x0960      # u32 parent object index, u32 node flags (see Node.flags)
 CHUNK_NODE_NAME = 0x0962        # UTF-16LE
 CHUNK_NODE_OFFSET_POS = 0x096A  # f32[3]
 CHUNK_NODE_OFFSET_ROT = 0x096B  # f32[4], file order (see transform.quat_from_max)
-CHUNK_NODE_OFFSET_SCALE = 0x096C  # f32[3+], first three used
+CHUNK_NODE_OFFSET_SCALE = 0x096C  # f32[3] scale, f32[4] scale-axis quaternion; first three used
+CHUNK_NODE_WIRE_COLOR = 0x0974  # u8 r, g, b, 0 (the fourth byte is 0 on every corpus node)
 
-# Node reference slots. Unverified (overview.md §4).
+# Node reference slots (verified: slot 0 holds a matrix3 controller on 40,947 of 40,948 nodes, slot 1 geometry /
+# light / camera / shape / helper objects, slot 3 materials, slot 6 a layer).
 SLOT_CONTROLLER = 0
 SLOT_OBJECT = 1
 SLOT_MATERIAL = 3
 SLOT_LAYER = 6
 
-# Unverified (overview.md §4): nodes have class ID 0x1 and superclass 0x1.
+# Verified: nodes have class ID 0x1 and superclass 0x1 (the scene root is class 0x2, superclass 0x1: "RootNode").
 NODE_CLASS_ID = ClassID(0x1, 0x0)
 NODE_SUPERCLASS_ID = 0x1
+ROOT_NODE_CLASS_ID = ClassID(0x2, 0x0)
+
+# Node flag bits in the second word of 0x0960. Guess, from the names and roles of the nodes that carry them in the
+# corpus (no file pair differing in just that state is available):
+NODE_FLAG_GROUP_HEAD = 1 << 6       # Set on the Dummy heading a group ("tower01", "block-2", ...).
+NODE_FLAG_GROUP_MEMBER = 1 << 8     # Set on members of a group (and on nested group heads).
+# Weak guess: set on context buildings ("existing01"...) and site lines of architectural scenes, rig bones, helpers.
+NODE_FLAG_FROZEN = 1 << 9
+NODE_FLAG_TARGET = 1 << 14          # Set on every "<name>.Target" node of cameras and lights.
+# Set on particle-shape sources, collision helpers, biped nubs and footsteps, proxy boxes of character rigs, the
+# "ceiling" of interiors rendered from inside.
+NODE_FLAG_HIDDEN = 1 << 20
+
+# Chunk types beyond the class directory that are classes of their own (see registry.DERIVED_OBJECT).
+PSEUDO_CLASSES = {
+    registry.DERIVED_OBJECT: "Derived Object",
+    registry.DERIVED_OBJECT_WSM: "Derived Object (world space)",
+}
 
 # Decoders can follow references into other decoders; this bounds the nesting (Python recursion).
 MAX_DECODE_DEPTH = 64
+
+# Scene settings object (class 0x2222, superclass 0x100, stored name "Scene"; one per file) and its unit chunk:
+# u32 system unit, f32 system unit scale ("1 unit = <scale> <unit>"). Verified on the corpus (623 files: codes 0, 1,
+# 3, 4, 5 occur, the scale is always 1.0): architectural scenes come out at their real size with this table, e.g.
+# an interior modelled as a 5.000 m room is 196.85 units in a file with code 0 (inches), a ~4.9 km bridge is
+# 166,534 units in inches, a photo studio 6,263 units in millimetres, a Revit import of a building 149.6 units in
+# feet. Some sample sets were saved with a unit that doesn't match their content (character sets that exist in a
+# metre and a "-US" variant with identical geometry, motion-capture files with identical geometry saved in
+# centimetres or metres), so the importer should let the user override it.
+SCENE_SETTINGS_CLASS_ID = ClassID(0x2222, 0x0)
+SCENE_SETTINGS_SUPERCLASS_ID = 0x100
+CHUNK_SYSTEM_UNIT = 0x8520
+# Codes 2 and 6 don't occur in the corpus; they are assumed from the order of the others.
+SYSTEM_UNITS = {0: "inches", 1: "feet", 2: "miles", 3: "millimeters", 4: "centimeters", 5: "meters",
+                6: "kilometers"}
 
 
 @dataclasses.dataclass(eq=False)
@@ -112,6 +149,35 @@ class Node:
     object: SceneObject | None = dataclasses.field(default=None, repr=False)
     material: SceneObject | None = dataclasses.field(default=None, repr=False)
     layer: SceneObject | None = dataclasses.field(default=None, repr=False)
+    flags: int = 0
+    """Raw node flags (second word of 0x0960); see :attr:`is_target`, :attr:`is_group_head`."""
+    wire_color: tuple[int, int, int] | None = None
+    """Wireframe colour, 0-255 per channel."""
+
+    @property
+    def is_target(self) -> bool:
+        """The target node of a camera or light. Guess (NODE_FLAG_TARGET): verified only by node names."""
+        return bool(self.flags & NODE_FLAG_TARGET)
+
+    @property
+    def is_group_head(self) -> bool:
+        """The dummy heading a group. Guess (NODE_FLAG_GROUP_HEAD): verified only by node names."""
+        return bool(self.flags & NODE_FLAG_GROUP_HEAD)
+
+    @property
+    def is_group_member(self) -> bool:
+        """A member of a group. Guess (NODE_FLAG_GROUP_MEMBER)."""
+        return bool(self.flags & NODE_FLAG_GROUP_MEMBER)
+
+    @property
+    def is_hidden(self) -> bool:
+        """Hidden in the viewports. Guess (NODE_FLAG_HIDDEN): consistent with the roles of the nodes carrying it."""
+        return bool(self.flags & NODE_FLAG_HIDDEN)
+
+    @property
+    def is_frozen(self) -> bool:
+        """Frozen. Weak guess (NODE_FLAG_FROZEN)."""
+        return bool(self.flags & NODE_FLAG_FROZEN)
 
     def local_matrix(self) -> Matrix4:
         """The transform controller's matrix (identity when not decoded)."""
@@ -121,7 +187,8 @@ class Node:
         """
         Product of :meth:`local_matrix` from the root down to this node.
 
-        Unverified (overview.md §4): assumes controller values are relative to the parent node.
+        Verified (overview.md §4.1): controller values are relative to the parent node; the result reproduces
+        the node matrices the Skin modifier stores for 71 of the 75 skinned nodes of the corpus.
         """
         chain = []
         node = self
@@ -132,6 +199,33 @@ class Node:
         for node in reversed(chain):
             matrix = matmul(matrix, node.local_matrix())
         return matrix
+
+
+@dataclasses.dataclass(frozen=True)
+class SceneUnits:
+    """The scene's system unit: one scene unit is ``scale`` ``unit`` (e.g. 1.0 "inches")."""
+    unit: str | None        # "inches", "feet", "miles", "millimeters", "centimeters", "meters", "kilometers"
+    scale: float
+    code: int               # The stored unit code.
+
+    @property
+    def metres(self) -> float | None:
+        """Length of one scene unit in metres, or None for an unknown unit code."""
+        factors = {"inches": 0.0254, "feet": 0.3048, "miles": 1609.344, "millimeters": 0.001,
+                   "centimeters": 0.01, "meters": 1.0, "kilometers": 1000.0}
+        return self.scale * factors[self.unit] if self.unit in factors else None
+
+
+def read_units(scene: "Scene") -> SceneUnits | None:
+    """The system unit stored in the scene settings object, or None when the file has none."""
+    for obj in scene.objects:
+        if obj.class_id == SCENE_SETTINGS_CLASS_ID and obj.superclass_id == SCENE_SETTINGS_SUPERCLASS_ID:
+            chunk = obj.chunk.find(CHUNK_SYSTEM_UNIT)
+            if chunk is None or chunk.payload_size < 8:
+                return None
+            code, scale = struct.unpack_from("<If", chunk.data)
+            return SceneUnits(SYSTEM_UNITS.get(code), scale, code)
+    return None
 
 
 class DecodeContext:
@@ -217,7 +311,7 @@ class Scene:
         The base object of ``node`` and its modifiers, through any modifier-stack wrappers.
 
         Returns ``(base, modifiers)``; ``modifiers`` lists the modifier objects from the top of the stack down
-        (unverified order, see :mod:`maxfile.objects.modifiers`). ``base`` is None when the node has no object or
+        (verified order, see :mod:`maxfile.objects.modifiers`). ``base`` is None when the node has no object or
         the wrappers don't lead to one.
         """
         from .objects.modifiers import ModifierStack
@@ -238,10 +332,14 @@ class Scene:
             obj = self.objects[value.base] if value.base is not None else None
         return None, modifiers
 
-    def param_block(self, obj: SceneObject):
-        """``obj`` read as a generic parameter block (:class:`maxfile.objects.paramblock.ParamBlockData`)."""
-        from .objects.paramblock import read_param_block
-        return read_param_block(obj)
+    def param_block(self, obj: SceneObject | None):
+        """
+        ``obj`` read as a parameter block (:class:`maxfile.objects.paramblock.ParamBlockData`), or None when it is
+        not a ParamBlock / ParamBlock2.
+        """
+        from .objects.paramblock import ParamBlockData
+        value = self.decode(obj) if obj is not None else None
+        return value if isinstance(value, ParamBlockData) else None
 
     def ref(self, obj: SceneObject, slot: int) -> SceneObject | None:
         """The object in reference ``slot`` of ``obj``, or None."""
@@ -293,12 +391,12 @@ def _read_references(chunk: Chunk, count: int, problems: collections.Counter) ->
     refs = {}
     for child in chunk.children:
         if child.type == CHUNK_REFS_ORDERED:
-            # Unverified (overview.md §3): u32 object indices, slot = position.
+            # Verified: u32 object indices, slot = position.
             if child.payload_size % 4:
                 problems["reference chunk size not a multiple of 4"] += 1
             pairs = enumerate(u32s(child.data))
         elif child.type == CHUNK_REFS_SPARSE:
-            # Unverified (overview.md §3): one skipped u32, then (slot, object index) pairs.
+            # Verified: u32 slot count, then (slot, object index) pairs (payload 4 + 8n in all 17,097 sampled).
             if child.payload_size % 8 != 4:
                 problems["sparse reference chunk size isn't 4 + 8n"] += 1
             values = u32s(child.data)[1:]
@@ -316,10 +414,8 @@ def _read_references(chunk: Chunk, count: int, problems: collections.Counter) ->
 
 
 def _is_node(obj: SceneObject) -> bool:
-    # Unverified (overview.md §4): class ID 0x1 with superclass 0x1, or a parent chunk.
-    if obj.class_id == NODE_CLASS_ID and obj.superclass_id == NODE_SUPERCLASS_ID:
-        return True
-    return obj.chunk.find(CHUNK_NODE_PARENT) is not None
+    # Verified: class ID 0x1 with superclass 0x1.
+    return obj.class_id == NODE_CLASS_ID and obj.superclass_id == NODE_SUPERCLASS_ID
 
 
 def _read_node(obj: SceneObject, scene: Scene, problems: collections.Counter) -> Node:
@@ -330,10 +426,15 @@ def _read_node(obj: SceneObject, scene: Scene, problems: collections.Counter) ->
         node.name = name.string()
     parent = chunk.find(CHUNK_NODE_PARENT)
     if parent is not None:
-        if parent.payload_size >= 4:
+        if parent.payload_size >= 8:
+            node.parent_index, node.flags = u32s(parent.data, 2)
+        elif parent.payload_size >= 4:
             node.parent_index = u32s(parent.data, 1)[0]
         else:
             problems["node parent chunk shorter than 4 bytes"] += 1
+    wire = chunk.find(CHUNK_NODE_WIRE_COLOR)
+    if wire is not None and wire.payload_size >= 3:
+        node.wire_color = tuple(wire.data[:3])
 
     def floats(chunk_type, count):
         found = chunk.find(chunk_type)
@@ -386,6 +487,38 @@ def _link_hierarchy(scene: Scene, problems: collections.Counter):
             scene.roots.append(node)
 
 
+def _aim(scene, node, value, problems):
+    """Set the rotation of a node with a Look At controller: its local -Z axis points at the target node.
+
+    Guess (Max's convention for target cameras and lights; the same as Blender's for cameras and lights): local -Z
+    towards the target, local +Y up, world +Z as the up reference. Parents with rotation or non-uniform scale are
+    taken into account through their world matrix.
+    """
+    target = scene.node(value.target_node) if value.target_node is not None else None
+    if target is None:
+        problems["Look At controller without a target node"] += 1
+        return
+    eye_world = node.world_matrix()
+    target_world = target.world_matrix()
+    eye = tuple(eye_world[i][3] for i in range(3))
+    goal = tuple(target_world[i][3] for i in range(3))
+    world_rot = look_at_matrix3(eye, goal, value.roll)
+    if world_rot is None:
+        problems["Look At node at its target's position"] += 1
+        return
+    rot = world_rot
+    if node.parent is not None:
+        p = node.parent.world_matrix()
+        axes = []
+        for c in range(3):
+            column = [p[r][c] for r in range(3)]
+            length = sum(v * v for v in column) ** 0.5 or 1.0
+            axes.append([v / length for v in column])
+        # Local rotation = parent rotation^T @ world rotation.
+        rot = tuple(tuple(sum(axes[r][k] * world_rot[k][c] for k in range(3)) for c in range(3)) for r in range(3))
+    node.transform = Transform(node.transform.position, matrix3_to_quat(rot), node.transform.scale)
+
+
 def parse_scene(stream: ChunkStream | None, classes: ClassDirectory) -> Scene:
     """Build the :class:`Scene` from the ``Scene`` chunk stream and the class directory."""
     warnings = []
@@ -395,7 +528,7 @@ def parse_scene(stream: ChunkStream | None, classes: ClassDirectory) -> Scene:
     warnings.extend(stream.warnings)
     if stream.error:
         warnings.append("{:s}: {:s}".format(stream.name, stream.error))
-    # Unverified (overview.md §3): one top-level container holding all objects.
+    # Verified: one top-level container holding all objects.
     containers = [c for c in stream.chunks if c.is_container]
     if len(stream.chunks) != 1:
         warnings.append("{:s}: {:d} top-level chunks (expected 1); using the first container".format(
@@ -409,9 +542,16 @@ def parse_scene(stream: ChunkStream | None, classes: ClassDirectory) -> Scene:
     if top.error:
         warnings.append("{:s}: object list: {:s}".format(stream.name, top.error))
     objects = []
+    pseudo = {}
     for index, chunk in enumerate(children):
         cls = classes.get(chunk.type)
-        if cls is None:
+        if cls is None and chunk.type in PSEUDO_CLASSES:
+            # Verified: these chunk types are classes of their own, never in the class directory.
+            if chunk.type not in pseudo:
+                pseudo[chunk.type] = ClassEntry(chunk.type, PSEUDO_CLASSES[chunk.type], ClassID(chunk.type), None,
+                                                None)
+            cls = pseudo[chunk.type]
+        elif cls is None:
             problems["object class index outside the class directory"] += 1
         objects.append(SceneObject(index, chunk.type, cls, chunk))
     for obj in objects:
@@ -427,15 +567,22 @@ def parse_scene(stream: ChunkStream | None, classes: ClassDirectory) -> Scene:
             scene._node_by_index[obj.index] = node
     _link_hierarchy(scene, problems)
 
+    from .objects.controllers import LookAt
     undecoded_controllers = collections.Counter()
+    look_ats = []
     for node in scene.nodes:
         if node.controller is None:
             continue
         value = scene.decode(node.controller)
         if isinstance(value, Transform):
             node.transform = value
+        elif isinstance(value, LookAt):
+            node.transform = Transform(value.position, None, value.scale)
+            look_ats.append((node, value))
         else:
             undecoded_controllers[node.controller.class_label()] += 1
+    for node, value in look_ats:
+        _aim(scene, node, value, problems)
     for label, count in sorted(undecoded_controllers.items()):
         warnings.append("{:d} node(s): transform controller {:s} not decoded".format(count, label))
     for message, count in sorted(problems.items()):

@@ -12,7 +12,8 @@ Conventions used throughout :mod:`maxfile`:
 - matrices are 4x4 tuples of rows for **column vectors** (``M @ v``, translation in the last column), the same
   convention as Blender's ``mathutils.Matrix``, so ``mathutils.Matrix(m)`` gives the same transform.
 
-How Max's on-disk rotations map onto these conventions is not verified yet (overview.md §4.1, "To verify" #6).
+How Max's on-disk rotations map onto these conventions was verified against the node matrices that the Skin
+modifier stores (overview.md §4.1): see :func:`quat_from_max`.
 """
 
 __all__ = (
@@ -26,6 +27,8 @@ __all__ = (
     "compose",
     "matmul",
     "quat_from_max",
+    "matrix3_to_quat",
+    "look_at_matrix3",
 )
 
 import dataclasses
@@ -61,7 +64,9 @@ def euler_xyz_to_quat(x: float, y: float, z: float) -> Quat:
     """
     Quaternion ``(w, x, y, z)`` for rotating about X, then Y, then Z (fixed axes), angles in radians.
 
-    Whether Max's "Euler XYZ" controller uses this order and sign is not verified (overview.md §4.1).
+    Verified for Max's "Euler XYZ" controller: radians, and the sign (on 11 corpus scenes whose skinned mesh nodes
+    use Euler rotations, negated angles don't reproduce the Skin modifier's stored node matrix). The order isn't
+    discriminated by those scenes (single-axis rotations); fixed-axes XYZ is assumed.
     """
     cx, sx = math.cos(x * 0.5), math.sin(x * 0.5)
     cy, sy = math.cos(y * 0.5), math.sin(y * 0.5)
@@ -76,12 +81,53 @@ def euler_xyz_to_quat(x: float, y: float, z: float) -> Quat:
 
 def quat_from_max(q) -> Quat:
     """
-    Reorder a quaternion as stored in the file (four ``f32``) into ``(w, x, y, z)``.
+    A quaternion as stored in the file (four ``f32``) as ``(w, x, y, z)`` in Blender's convention.
 
-    Unverified (overview.md §4.1): the prior-art importer uses ``(w, x, y, z) = (q[3], q[2], q[1], q[0])``.
-    Whether that is right, and whether Max's rotation sign matches Blender's, must be checked on a reference export.
+    Files store ``x, y, z, w`` of the *inverse* rotation, so the vector part is negated: ``(w, x, y, z) =
+    (q[3], -q[0], -q[1], -q[2])``. Verified against the node matrices the Skin modifier keeps (4x3 matrices, no
+    quaternions): with this mapping 71 of the 75 skinned nodes of the corpus reproduce the stored matrix, including
+    every node with a non-trivial rotation; the prior-art mapping ``(q[3], q[2], q[1], q[0])`` fails on 10 of them.
+    The remaining 4 are nodes that moved after skinning.
     """
-    return (q[3], q[2], q[1], q[0])
+    return (q[3], -q[0], -q[1], -q[2])
+
+
+def matrix3_to_quat(m) -> Quat:
+    """Quaternion ``(w, x, y, z)`` of a rotation matrix (rows, column-vector convention)."""
+    trace = m[0][0] + m[1][1] + m[2][2]
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        return (0.25 * s, (m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s)
+    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
+        return ((m[2][1] - m[1][2]) / s, 0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s)
+    if m[1][1] > m[2][2]:
+        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
+        return ((m[0][2] - m[2][0]) / s, (m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s)
+    s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
+    return ((m[1][0] - m[0][1]) / s, (m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s)
+
+
+def look_at_matrix3(eye: Vec3, target: Vec3, roll: float = 0.0):
+    """
+    World rotation (rows, column vectors) of an object at ``eye`` whose local -Z axis points at ``target``, local
+    +Y up as far as possible (world +Z up; world +Y when looking straight up or down), turned by ``roll`` radians
+    about the viewing axis. Returns None when ``eye`` and ``target`` coincide.
+    """
+    z = tuple(e - t for e, t in zip(eye, target))
+    length = math.sqrt(sum(c * c for c in z))
+    if length == 0.0:
+        return None
+    z = tuple(c / length for c in z)
+    up = (0.0, 0.0, 1.0) if abs(z[2]) < 0.999999 else (0.0, 1.0, 0.0)
+    x = (up[1] * z[2] - up[2] * z[1], up[2] * z[0] - up[0] * z[2], up[0] * z[1] - up[1] * z[0])
+    n = math.sqrt(sum(c * c for c in x))
+    x = tuple(c / n for c in x)
+    y = (z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0])
+    if roll:
+        c, s = math.cos(roll), math.sin(roll)
+        x, y = tuple(c * a + s * b for a, b in zip(x, y)), tuple(-s * a + c * b for a, b in zip(x, y))
+    return tuple((x[i], y[i], z[i]) for i in range(3))
 
 
 def compose(position: Vec3 | None, rotation: Quat | None, scale: Vec3 | None) -> Matrix4:
@@ -113,7 +159,7 @@ class Transform:
     scale: Vec3 | None = None
 
     def matrix(self) -> Matrix4:
-        """``T @ R @ S``. The composition order is our convention, not verified against Max."""
+        """``T @ R @ S`` (verified with the Skin matrices above, including nodes with object offsets)."""
         return compose(self.position, self.rotation, self.scale)
 
     def is_empty(self) -> bool:

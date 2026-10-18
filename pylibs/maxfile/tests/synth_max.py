@@ -5,13 +5,13 @@
 """
 Synthetic ``.max``-like fixtures, built in code.
 
-**These are not real .max files.** They follow the layouts described in ``docs/format/overview.md``, which come
-from the prior-art importer and have not been verified on real files. Tests built on them check that our parser
-implements those *documented assumptions*; they say nothing about whether the assumptions are right. That is
-what the corpus tests (``test_corpus.py``) are for.
+**These are not real .max files** and contain no bytes copied from any. They follow the layouts described in
+``docs/format/overview.md``, most of which have been verified on the local corpus (see the overview); tests built
+on them check that the parser implements those layouts. The corpus tests (``test_corpus.py``) check the layouts
+themselves against real files.
 
-Where the overview doesn't specify something (for example the chunk type of a class-directory entry or of the
-Scene's top-level container), the builders use arbitrary placeholder values that the parser must not depend on.
+Where the overview doesn't specify something (for example the chunk type of the Scene's top-level container), the
+builders use arbitrary placeholder values that the parser must not depend on.
 """
 
 import gzip
@@ -19,9 +19,10 @@ import struct
 
 from cfb_writer import build_cfb
 
-# Placeholder chunk types for things overview.md doesn't specify; the parser must ignore them.
-ANY_CLASS_ENTRY = 0x2040
-ANY_DLL_ENTRY = 0x2038
+CLASS_ENTRY = 0x2040
+DLL_HEADER = 0x21C0
+DLL_ENTRY = 0x2038
+# Placeholder chunk type for things overview.md doesn't specify; the parser must ignore it.
 ANY_SCENE_TOP = 0x2000
 NULL = 0xFFFFFFFF
 
@@ -54,8 +55,8 @@ def f32(*values):
 
 
 def max_quat(w, x, y, z):
-    """Encode (w, x, y, z) in the documented file order: the reader maps (q3, q2, q1, q0) to (w, x, y, z)."""
-    return f32(z, y, x, w)
+    """Encode (w, x, y, z) as files store it: x, y, z, w of the inverse rotation (overview.md §4.1)."""
+    return f32(-x, -y, -z, w)
 
 
 class SceneBuilder:
@@ -67,15 +68,16 @@ class SceneBuilder:
         self.objects = []
 
     def dll(self, *strings_by_type):
-        """Add a DLL entry; arguments are (chunk_type, text) pairs. Returns its index."""
-        self.dlls.append(cont(ANY_DLL_ENTRY, *(leaf(t, text(s)) for t, s in strings_by_type)))
+        """Add a DLL entry; arguments are (chunk_type, text) pairs (0x2037 file name, 0x2039 description).
+        Returns its index."""
+        self.dlls.append(cont(DLL_ENTRY, *(leaf(t, text(s)) for t, s in strings_by_type)))
         return len(self.dlls) - 1
 
     def cls(self, name, class_id, superclass_id, dll_index=NULL):
         """Add a class-directory entry (overview.md §2.3). ``class_id`` is (a, b). Returns the class index."""
         a, b = class_id
         self.classes.append(cont(
-            ANY_CLASS_ENTRY,
+            CLASS_ENTRY,
             leaf(0x2060, u32(dll_index, a, b, superclass_id)),
             leaf(0x2042, text(name)),
         ))
@@ -118,7 +120,7 @@ class SceneBuilder:
         assert None not in self.objects, "unfilled placeholder"
         streams = {
             "ClassDirectory3": b"".join(self.classes),
-            "DllDirectory": b"".join(self.dlls),
+            "DllDirectory": leaf(DLL_HEADER, u32(0x4E200000)) + b"".join(self.dlls),
             "Scene": cont(ANY_SCENE_TOP, *self.objects),
         }
         for name in compress:
@@ -145,25 +147,32 @@ def refs_sparse(mapping, first=0):
 
 
 # -----------------------------------------------------------------------------
-# Geometry (overview.md §6.2, §6.3), parameter blocks (§5.1, §6.4) and materials (§5). Layouts as documented,
-# unverified; material IDs are written 0-based, as the reader assumes (geometry.MATERIAL_ID_DISK_OFFSET).
+# Geometry (overview.md §6.2, §6.3). Material IDs are written 0-based, as stored on disk.
 
-def poly_mesh(positions, faces, material_ids=None, smoothing=None, channels=None, extra=()):
+def poly_mesh(positions, faces, material_ids=None, smoothing=None, channels=None, extra=(), unknown_field=False):
     """An Editable Poly 0x08FE container. ``material_ids`` are 0-based disk values; ``channels`` maps
-    channel number -> (map vertices, map faces)."""
+    channel number -> (map vertices, map faces). Like Max, the optional face fields are only written when they
+    are non-zero, and the triangulation diagonals on faces with more than three corners."""
     verts = u32(len(positions)) + b"".join(u32(0) + f32(*p) for p in positions)
     face_data = [u32(len(faces))]
     for i, face in enumerate(faces):
         flags = 0
         tail = b""
-        if material_ids is not None:
+        if unknown_field:
+            flags |= 0x01
+            tail += u32(1)
+        if material_ids is not None and material_ids[i]:
             flags |= 0x08
             tail += struct.pack("<H", material_ids[i])
-        if smoothing is not None:
+        if smoothing is not None and smoothing[i]:
             flags |= 0x10
             tail += u32(smoothing[i])
+        if len(face) > 3:
+            flags |= 0x20
+            tail += b"".join(u32(0, k) for k in range(2, len(face) - 1))     # Fan diagonals.
         face_data.append(u32(len(face), *face) + struct.pack("<H", flags) + tail)
-    children = [leaf(0x0100, verts), leaf(0x011A, b"".join(face_data))]
+    children = [leaf(0x0100, verts), leaf(0x011A, b"".join(face_data)),
+                leaf(0x0120, u32(max(channels or {0: None}) + 1))]
     for number, (map_verts, map_faces) in (channels or {}).items():
         children.append(leaf(0x0124, struct.pack("<i", number)))
         children.append(leaf(0x0128, u32(len(map_verts)) + b"".join(f32(*v) for v in map_verts)))
@@ -172,22 +181,86 @@ def poly_mesh(positions, faces, material_ids=None, smoothing=None, channels=None
     return cont(0x08FE, *children)
 
 
-def tri_mesh(positions, faces, material_ids=None, smoothing=None, channels=None, class_0x19=False):
-    """An Editable Mesh 0x08FE container (triangles). ``material_ids`` are 0-based disk values."""
+def tri_mesh(positions, faces, material_ids=None, smoothing=None, channels=None, edge_flags=None):
+    """An Editable Mesh 0x08FE container (triangles). ``material_ids`` are 0-based disk values; ``edge_flags`` are
+    the face flags (bits 0-2: edge visibility; default all visible)."""
     n = len(faces)
     material_ids = material_ids or [0] * n
     smoothing = smoothing or [0] * n
+    edge_flags = edge_flags or [7] * n
     children = [
+        leaf(0x0906, u32(0)),
         leaf(0x0914, u32(len(positions)) + b"".join(f32(*p) for p in positions)),
-        leaf(0x0912, u32(n) + b"".join(u32(*f, smoothing[i]) + struct.pack("<HH", 0, material_ids[i])
+        leaf(0x0912, u32(n) + b"".join(u32(*f, smoothing[i]) + struct.pack("<HH", edge_flags[i], material_ids[i])
                                        for i, f in enumerate(faces))),
+        leaf(0x0924, u32(0)),   # Not a channel number (it was read as one by the prior-art importer).
     ]
-    vert_type, face_type = (0x0916, 0x0918) if class_0x19 else (0x2394, 0x2396)
     for number, (map_verts, map_faces) in (channels or {}).items():
-        children.append(leaf(0x0924, struct.pack("<i", number)))
-        children.append(leaf(vert_type, u32(len(map_verts)) + b"".join(f32(*v) for v in map_verts)))
-        children.append(leaf(face_type, u32(len(map_faces)) + b"".join(u32(*f) for f in map_faces)))
+        children.append(leaf(0x0959, struct.pack("<i", number)))
+        children.append(leaf(0x2398, u32(1)))
+        children.append(leaf(0x2394, u32(len(map_verts)) + b"".join(f32(*v) for v in map_verts)))
+        children.append(leaf(0x2396, u32(len(map_faces)) + b"".join(u32(*f) for f in map_faces)))
     return cont(0x08FE, *children)
+
+
+# -----------------------------------------------------------------------------
+# Parameter blocks (overview.md §5.1)
+
+PB2 = ((0x82, 0), 0x82)         # ParamBlock2 class ID and superclass
+PB2_TYPES = {"float": 0, "int": 1, "rgb": 2, "point3": 3, "bool": 4, "angle": 5, "percent": 6, "world": 7,
+             "string": 8, "filename": 9, "material": 14, "texmap": 15, "node": 17, "reference": 18, "rgba": 23}
+_PB2_FORMATS = {"float": "<f", "angle": "<f", "percent": "<f", "world": "<f", "int": "<i", "bool": "<I",
+                "rgb": "<3f", "point3": "<3f", "rgba": "<4f"}
+
+
+def _pb2_value(kind, value):
+    if kind in ("string", "filename"):
+        if value is None:
+            return u32(0xFFFFFFFF)
+        raw = (value + "\0").encode("utf-16-le")     # 0x100E records hold UTF-16 (0x000E ones 8-bit text).
+        return u32(len(raw)) + raw
+    fmt = _PB2_FORMATS[kind]
+    return struct.pack(fmt, *(value if isinstance(value, (tuple, list)) else (value,)))
+
+
+def pb2_param(param_id, kind, value=None, animated=False, inline_ref=False, table=False):
+    """One ParamBlock2 record (chunk 0x100E). References are slot-based unless ``inline_ref`` (then ``value`` is
+    the object index or None); ``animated`` values have no inline value (a controller in the next free slot).
+    ``table``: ``value`` is a list (for references, the items are slot-based or inline like single values)."""
+    code = PB2_TYPES[kind] | (0x800 if table else 0)
+    is_ref = kind in ("material", "texmap", "node", "reference")
+    flags_a = 0x0100 if inline_ref else 0
+    flags_b = 0x81 if is_ref else (0x92 if animated else 0x82)
+    value_flags = 0x80 if animated else 0x40
+    head = struct.pack("<HIHIHB", param_id, code, flags_a, flags_b, 0, 0 if table else value_flags)
+    if table:
+        items = []
+        for item in value:
+            if is_ref:
+                items.append(b"\x40" + (u32(0xFFFFFFFF if item is None else item) if inline_ref else b""))
+            elif item is None:      # Animated item.
+                items.append(b"\x80")
+            else:
+                items.append(b"\x40" + _pb2_value(kind, item))
+        return leaf(0x100E, head + u32(len(value)) + b"".join(items))
+    if is_ref:
+        return leaf(0x100E, head + (u32(0xFFFFFFFF if value is None else value) if inline_ref else b""))
+    if animated:
+        return leaf(0x100E, head)
+    return leaf(0x100E, head + _pb2_value(kind, value))
+
+
+def pb2_block(owner, *records, refs=None, old_records=False):
+    """A ParamBlock2 object's children: the 0x0009 header, the records and the reference chunk. ``refs`` maps slot
+    -> object index. ``old_records`` writes the record chunks as 0x000E (files from Max 2012 and older)."""
+    header = leaf(0x0009, struct.pack("<IHIHI", 1, 0, 0x4E20, len(records), owner))
+    if old_records:
+        records = tuple(leaf(0x000E, r[6:]) for r in records)
+    children = [header, *records]
+    if refs:
+        count = max(refs) + 1
+        children.append(refs_sparse(refs, first=count))
+    return children
 
 
 def param(param_id, payload):

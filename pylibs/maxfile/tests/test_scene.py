@@ -102,16 +102,36 @@ def test_nodes_and_hierarchy():
         assert mf.warnings == []
 
 
-def test_node_detected_by_parent_chunk():
-    # Unverified (overview.md §4): an object with a 0x0960 parent chunk is a node whatever its class.
+def test_node_needs_node_class():
+    # Verified (overview.md §4): nodes are exactly the objects of class 0x1 / superclass 0x1; a parent chunk alone
+    # doesn't make one.
     b, c = _basic()
     other = b.cls("SomethingElse", (0x7777, 0), 0x1)
     root = b.node(c["node"], "Root")
     n = b.obj(other, leaf(0x0960, u32(root)), leaf(0x0962, text("ByParent")))
-    not_node = b.obj(other, leaf(0x0962, text("NotANode")))
     with maxfile.open(b.build()) as mf:
-        assert mf.scene.node(n).name == "ByParent"
-        assert mf.scene.node(not_node) is None
+        assert mf.scene.node(n) is None and mf.scene.node(root) is not None
+
+
+def test_node_flags_and_wire_color():
+    b, c = _basic()
+    n = b.obj(c["node"], leaf(0x0960, u32(NULL, (1 << 14) | (1 << 8) | (1 << 20))),
+              leaf(0x0962, text("Spot01.Target")), leaf(0x0974, bytes((88, 177, 27, 0))))
+    with maxfile.open(b.build()) as mf:
+        node = mf.scene.node(n)
+        assert node.is_target and node.is_group_member and not node.is_group_head
+        assert node.is_hidden and not node.is_frozen
+        assert node.wire_color == (88, 177, 27)
+
+
+def test_derived_object_pseudo_class():
+    # Verified: chunk types 0x2032 / 0x2033 beyond the class directory are classes of their own.
+    b, c = _basic()
+    d = b.obj(0x2032)
+    with maxfile.open(b.build()) as mf:
+        obj = mf.objects[d]
+        assert obj.cls is not None and obj.class_label() == "Derived Object"
+        assert not any("outside the class directory" in w for w in mf.warnings)
 
 
 def test_node_class_requires_superclass():

@@ -181,7 +181,7 @@ def summary(mf: "maxfile.MaxFile") -> dict:
         })
     data["class_directory"] = {"stream": mf.class_directory.stream_name, "classes": classes}
     data["dll_directory"] = [
-        {"index": d.index, "strings": {"0x{:04X}".format(t): s for t, s in sorted(d.strings.items())}}
+        {"index": d.index, "file": d.file_name, "description": d.description}
         for d in mf.dll_directory.entries
     ]
 
@@ -268,9 +268,23 @@ def _map_row(m):
 def _decoded_sections(mf) -> dict:
     """Geometry, primitives, modifier stacks and materials, as decoded by the registered decoders."""
     scene = mf.scene
-    geometry, primitives, stacks = [], [], []
+    geometry, primitives, stacks, lights, shapes = [], [], [], [], []
     for obj in scene.objects:
         info = registry.find_decoder(obj.class_id, obj.superclass_id)
+        if info is not None and info.kind in ("light", "camera", "shape"):
+            value = scene.decode(obj)
+            ref = _obj_ref(obj)
+            if value is None:
+                (shapes if info.kind == "shape" else lights).append(dict(ref, decoded=False))
+            elif info.kind == "shape":
+                shapes.append(dict(ref, kind=value.kind, source=value.source, splines=len(value.splines),
+                                   knots=sum(len(s.knots) for s in value.splines),
+                                   closed=sum(1 for s in value.splines if s.closed),
+                                   params=report.to_plain(value.params)))
+            else:
+                lights.append(dict(ref, class_name=value.class_name, params=report.to_plain(value.params),
+                                   target_node=getattr(value, "target_node", None)))
+            continue
         if info is None or not info.kind.startswith("geometry."):
             continue
         value = scene.decode(obj)
@@ -298,7 +312,8 @@ def _decoded_sections(mf) -> dict:
             seen.add(node.material.index)
             materials.append({"depth": 0, "index": node.material.index, "class": node.material.class_label(),
                               "decoded": False})
-    return {"geometry": geometry, "primitives": primitives, "modifier_stacks": stacks, "materials": materials}
+    return {"geometry": geometry, "primitives": primitives, "modifier_stacks": stacks, "materials": materials,
+            "lights_cameras": lights, "shapes": shapes}
 
 
 def _kv(params: dict) -> str:
@@ -343,6 +358,23 @@ def _print_decoded(data: dict, w):
     for m in data["modifier_stacks"]:
         w("  {:s}  base={:s}  modifiers={:s}\n".format(
             _ref_text(m), _ref_text(m["base"]), ", ".join(_ref_text(r) for r in m["modifiers"]) or "-"))
+    w("\n== Lights and cameras ({:d}) ==\n".format(len(data["lights_cameras"])))
+    for item in data["lights_cameras"]:
+        if not item.get("decoded", True):
+            w("  {:s}  (not decoded)\n".format(_ref_text(item)))
+            continue
+        line = "  {:s}  {:s}  {:s}".format(_ref_text(item), item["class_name"], _kv(item["params"]))
+        if item["target_node"] is not None:
+            line += "  target=[{:d}]".format(item["target_node"])
+        w(line + "\n")
+    w("\n== Shapes ({:d}) ==\n".format(len(data["shapes"])))
+    for item in data["shapes"]:
+        if not item.get("decoded", True):
+            w("  {:s}  (not decoded)\n".format(_ref_text(item)))
+            continue
+        w("  {:s}  kind={:s}  source={:s}  splines={:d} (closed {:d})  knots={:d}  {:s}\n".format(
+            _ref_text(item), item["kind"], item["source"], item["splines"], item["closed"], item["knots"],
+            _kv(item["params"])))
     w("\n== Materials used by nodes ({:d} rows) ==\n".format(len(data["materials"])))
     for m in data["materials"]:
         pad = "  " * (m["depth"] + 1)
@@ -404,8 +436,8 @@ def _print_summary(data: dict, mf, out):
 
     w("\n== DLL directory ({:d} entries) ==\n".format(len(data["dll_directory"])))
     for d in data["dll_directory"]:
-        strings = "  ".join("{:s}={:s}".format(t, json.dumps(s, ensure_ascii=False)) for t, s in d["strings"].items())
-        w("  #{:<4d} {:s}\n".format(d["index"], strings or "(no strings)"))
+        w("  #{:<4d} {:s}  {:s}\n".format(
+            d["index"], json.dumps(d["file"], ensure_ascii=False), json.dumps(d["description"], ensure_ascii=False)))
 
     w("\n== Nodes ({:d} of {:d} objects, {:d} roots) ==\n".format(len(data["nodes"]), data["objects"], data["roots"]))
     scene = mf.scene
@@ -580,14 +612,39 @@ def _dump_chunks(mf, args, out) -> int:
 # -----------------------------------------------------------------------------
 # Decoded view of one object
 
-def _param_entry_text(entry) -> str:
-    g = entry.guessed
-    parts = ["id=0x{:04X}".format(entry.param_id), "chunk=0x{:04X}".format(entry.chunk_type),
-             "bytes={:d}".format(len(entry.raw))]
-    for key in ("float", "int", "color", "rgba_color"):
-        if key in g:
-            parts.append("{:s}={:s}".format(key, report.format_value(g[key])))
-    return "  ".join(parts)
+def _param_text(param, scene) -> str:
+    """One parameter: ``id=7 percent=0.1``, references as ``[12] Bitmap``, controllers as ``ctrl=[5] ...``."""
+    value = param.value
+    if param.is_reference:
+        items = value if isinstance(value, list) else [value]
+        shown = ", ".join("[{:d}] {:s}".format(i, scene.objects[i].class_label())
+                          if isinstance(i, int) and 0 <= i < len(scene.objects) else "-" for i in items)
+        text = "[" + shown + "]" if isinstance(value, list) else shown
+    elif type(value).__name__ == "AssetRef":
+        text = "asset:" + value.guid
+    else:
+        text = report.format_value(value)
+        if isinstance(value, str) or isinstance(value, list) and len(text) > 200:
+            text = text[:200] + ("..." if len(text) > 200 else "")
+    line = "id={:d} {:s}={:s}".format(param.param_id, param.kind, text)
+    if param.controller is not None:
+        line += "  ctrl=[{:d}] {:s}".format(param.controller, scene.objects[param.controller].class_label())
+    elif param.animated:
+        line += "  ctrl=?"
+    return line
+
+
+def _param_blocks(obj, scene):
+    """The object itself if it is a parameter block, else the parameter blocks among its references."""
+    found = []
+    block = scene.param_block(obj)
+    if block is not None:
+        return [(None, block)]
+    for slot, index in sorted(obj.references.items()):
+        block = scene.param_block(scene.objects[index])
+        if block is not None:
+            found.append((slot, block))
+    return found
 
 
 def decoded_object(mf, index: int) -> dict:
@@ -619,8 +676,8 @@ def decoded_object(mf, index: int) -> dict:
             "transform": _transform_json(node.transform), "object_offset": _transform_json(node.object_offset),
             "geometry": _obj_ref(base), "modifiers": [_obj_ref(m) for m in modifiers],
         }
-    # Generic, structural readings: useful for classes without a decoder.
-    result["param_block"] = report.to_plain(scene.param_block(obj))
+    # Structural readings: useful for classes without a decoder.
+    result["param_blocks"] = {str(slot): report.to_plain(block) for slot, block in _param_blocks(obj, scene)}
     ctx = scene.context
     result["map"] = report.to_plain(read_map(obj, ctx)) if is_map_like(obj, ctx) else None
     result["warnings"] = scene.warnings[before:]
@@ -645,13 +702,16 @@ def _print_decoded_object(data: dict, mf, out):
         w("\ndecoded:\n")
         value = scene.decode(obj)
         w(report.format_value(value) + "\n" if value is not None else "  None (see warnings)\n")
-    block = scene.param_block(obj)
-    w("\nas a parameter block ({:d} leaf entries; values are guesses from the payload end):\n".format(
-        len(block.entries)))
-    for entry in block.entries[:64]:
-        w("  " + _param_entry_text(entry) + "\n")
-    if len(block.entries) > 64:
-        w("  ... ({:d} total)\n".format(len(block.entries)))
+    for slot, block in _param_blocks(obj, scene):
+        w("\nparameter block [{!s}] ({:s}{:s}, {:d} parameters){:s}:\n".format(
+            block.object_index, block.kind, "" if block.block_id is None else " id={:d}".format(block.block_id),
+            len(block.params), "" if slot is None else " in reference slot {:d}".format(slot)))
+        for param in block.entries[:200]:
+            w("  " + _param_text(param, scene) + "\n")
+        if len(block.params) > 200:
+            w("  ... ({:d} total)\n".format(len(block.params)))
+        for problem in block.problems:
+            w("  !! {:s}\n".format(problem))
     if data["map"] is not None:
         m = data["map"]
         w("\nas a map: path={:s}  path_source={!s}  asset_index={!s}\n".format(

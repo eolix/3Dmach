@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-End-to-end import of synthetic .max files (built from the documented, unverified layouts by maxfile's test
-helpers), plus the scene builder's geometry/material/modifier paths driven by stand-in decoded data.
+End-to-end import of synthetic .max files (built by maxfile's test helpers to the layouts verified on real files),
+plus the scene builder's geometry/material/modifier paths driven by stand-in decoded data.
 """
 
 import dataclasses
@@ -29,7 +29,7 @@ def synthetic_scene():
     """Root > Box001 (at 1, 2, 3 inches, child Box002 at 0, 0, 10), plus an unknown plugin object."""
     b = sm.SceneBuilder()
     node = b.cls("Node", (1, 0), 1)
-    prs = b.cls("PRS", (0x2005, 0), 0x9008003)
+    prs = b.cls("PRS", (0x2005, 0), 0x9008)
     bez = b.cls("BezPos", (0x2008, 0), 0x900B)
     weird = b.cls("WeirdPlugin", (0xABCD, 0x1234), 0x10)
     p1 = b.obj(bez, sm.leaf(0x2503, sm.f32(1, 2, 3)))
@@ -214,7 +214,7 @@ class ImportTest(unittest.TestCase):
         b = sm.SceneBuilder()
         node = b.cls("Node", (1, 0), 1)
         poly = b.cls("Editable Poly", (0x1BF8338D, 0x192F6098), 0x10)
-        derived = b.cls("Derived", (0x2032, 0), 0x0B)
+        derived = 0x2032    # Derived objects: the chunk type itself is the class (not in the class directory).
         smooth = b.cls("TurboSmooth", (0x7E57, 0x0010), 0x810)
         shell = b.cls("Shell", (0x7E57, 0x0011), 0x810)
         odd = b.cls("OddModifier", (0x7E57, 0x0012), 0x810)

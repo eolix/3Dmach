@@ -7,7 +7,7 @@ Class directory and DLL directory.
 
 Every object in the ``Scene`` stream is tagged with an index into the *class directory*, which names the class
 (class ID, superclass ID, name) and the plugin DLL that implements it (an index into the *DLL directory*).
-See ``docs/format/overview.md`` §2.3 and §2.4; none of the layouts here are verified on real files yet.
+See ``docs/format/overview.md`` §2.3 and §2.4. Verified on the 623 files of the local corpus (Max 2008-2018).
 
 The mapping from class IDs to human names and decoders is in :mod:`maxfile.registry`.
 """
@@ -29,16 +29,23 @@ import struct
 
 from .chunks import Chunk, ChunkStream
 
-# Unverified (overview.md §1): newer files use "ClassDirectory3", older ones presumably "ClassDirectory".
+# Every corpus file (Max 2008-2018) has "ClassDirectory3". Older files presumably use "ClassDirectory" (none in
+# the corpus to check).
 CLASS_DIRECTORY_STREAMS = ("ClassDirectory3", "ClassDirectory")
 DLL_DIRECTORY_STREAM = "DllDirectory"
 
-# Chunk types inside a class directory entry. Unverified (overview.md §2.3).
+# Class directory (verified, overview.md §2.3): one 0x2040 container per class, in class-index order.
+CHUNK_CLASS_ENTRY = 0x2040
 CHUNK_CLASS_HEADER = 0x2060     # u32 dll_index, u32 class_id_a, u32 class_id_b, u32 superclass_id
 CHUNK_CLASS_NAME = 0x2042       # UTF-16LE
-# Chunk types inside a DLL directory entry. Unverified (overview.md §2.4). Which one is the file name and which
-# the description is not known yet, so they are kept under their chunk types.
-CHUNK_DLL_STRINGS = (0x2037, 0x2039)
+# DLL directory (verified, overview.md §2.4): a 0x21C0 header, then one 0x2038 container per DLL.
+CHUNK_DLL_HEADER = 0x21C0       # u32: low u16 build (?), high u16 = Max release x 1000 (e.g. 20000 = Max 2018)
+CHUNK_DLL_ENTRY = 0x2038
+CHUNK_DLL_FILE = 0x2037         # UTF-16LE file name, e.g. "mtl.dlt"
+CHUNK_DLL_DESCRIPTION = 0x2039  # UTF-16LE description, e.g. "Standard Materials and Textures (Autodesk)"
+CHUNK_DLL_STRINGS = (CHUNK_DLL_FILE, CHUNK_DLL_DESCRIPTION)
+# dll_index values meaning "built into the core, no DLL": 0xFFFFFFFF (most) and 0xFFFFFFFE (a few classes).
+DLL_NONE = (0xFFFFFFFF, 0xFFFFFFFE)
 
 _CLASS_HEADER = struct.Struct("<IIII")
 
@@ -56,7 +63,7 @@ class ClassID:
 
     @classmethod
     def from_u64(cls, value: int) -> "ClassID":
-        """Build from the 64-bit form (``a`` = low 32 bits). Unverified word order (overview.md §2.3)."""
+        """Build from the 64-bit form (``a`` = low 32 bits; verified: Editable Poly is stored as a, b below)."""
         return cls(value & 0xFFFFFFFF, (value >> 32) & 0xFFFFFFFF)
 
     @property
@@ -80,9 +87,21 @@ class DllEntry:
     strings: dict[int, str]     # Chunk type (0x2037, 0x2039) -> text.
     chunk: Chunk = dataclasses.field(repr=False)
 
+    @property
+    def file_name(self) -> str | None:
+        """The plugin file name (chunk 0x2037), e.g. ``"mtl.dlt"``."""
+        return self.strings.get(CHUNK_DLL_FILE)
+
+    @property
+    def description(self) -> str | None:
+        """The plugin description (chunk 0x2039)."""
+        return self.strings.get(CHUNK_DLL_DESCRIPTION)
+
     def label(self) -> str:
-        """All strings, for display."""
-        return " | ".join(self.strings[t] for t in sorted(self.strings)) or "(no strings)"
+        """File name and description, for display."""
+        parts = [s for s in (self.file_name, self.description) if s]
+        parts.extend(self.strings[t] for t in sorted(self.strings) if t not in CHUNK_DLL_STRINGS)
+        return " | ".join(parts) or "(no strings)"
 
 
 @dataclasses.dataclass(slots=True)
@@ -90,6 +109,13 @@ class DllDirectory:
     """The DLL directory: plugin DLLs referenced by the class directory."""
     entries: list[DllEntry]
     warnings: list[str] = dataclasses.field(default_factory=list)
+    header: int | None = None
+    """The 0x21C0 header value; its high 16 bits are the Max release x 1000 (see :attr:`max_release`)."""
+
+    @property
+    def max_release(self) -> int | None:
+        """Max release number the file was saved with, x 1000 (e.g. 20000 = Max 2018, 12900 = Max 2010)."""
+        return self.header >> 16 if self.header is not None else None
 
     def __len__(self):
         return len(self.entries)
@@ -98,7 +124,7 @@ class DllDirectory:
         return self.entries[index]
 
     def get(self, index: int) -> DllEntry | None:
-        """The entry at ``index``, or None when out of range (built-in classes, presumably)."""
+        """The entry at ``index``, or None when out of range (0xFFFFFFFF / 0xFFFFFFFE: built-in classes)."""
         return self.entries[index] if 0 <= index < len(self.entries) else None
 
 
@@ -149,8 +175,18 @@ def parse_dll_directory(stream: ChunkStream | None) -> DllDirectory:
     if stream.error:
         warnings.append("{:s}: {:s}".format(stream.name, stream.error))
     entries = []
-    # Unverified (overview.md §2.4): every top-level chunk is one entry, indexed by position.
-    for index, chunk in enumerate(stream.chunks):
+    header = None
+    # Verified on 623 corpus files: a 0x21C0 header, then 0x2038 entries; the class directory's dll_index counts
+    # the 0x2038 entries only (so the header is not entry 0).
+    for chunk in stream.chunks:
+        if chunk.type == CHUNK_DLL_HEADER and not chunk.is_container:
+            if chunk.payload_size >= 4:
+                header = struct.unpack_from("<I", chunk.data)[0]
+            continue
+        if chunk.type != CHUNK_DLL_ENTRY:
+            warnings.append("{:s}: unexpected top-level chunk 0x{:04X} skipped".format(stream.name, chunk.type))
+            continue
+        index = len(entries)
         strings = {}
         if chunk.is_container:
             for child in chunk.children:
@@ -159,7 +195,7 @@ def parse_dll_directory(stream: ChunkStream | None) -> DllDirectory:
             if chunk.error:
                 warnings.append("{:s} entry {:d}: {:s}".format(stream.name, index, chunk.error))
         entries.append(DllEntry(index, strings, chunk))
-    return DllDirectory(entries, warnings)
+    return DllDirectory(entries, warnings, header)
 
 
 def parse_class_directory(stream: ChunkStream | None, dlls: DllDirectory | None = None) -> ClassDirectory:
@@ -171,7 +207,7 @@ def parse_class_directory(stream: ChunkStream | None, dlls: DllDirectory | None 
     if stream.error:
         warnings.append("{:s}: {:s}".format(stream.name, stream.error))
     entries = []
-    # Unverified (overview.md §2.3): every top-level chunk is one class; its position is the class index.
+    # Verified (623 corpus files): every top-level chunk is a 0x2040 class entry; its position is the class index.
     for index, chunk in enumerate(stream.chunks):
         entry = ClassEntry(index, None, None, None, None, chunk=chunk)
         entries.append(entry)
@@ -184,13 +220,16 @@ def parse_class_directory(stream: ChunkStream | None, dlls: DllDirectory | None 
             entry.error = "0x{:04X} header is {:d} bytes, expected {:d}".format(
                 CHUNK_CLASS_HEADER, header.payload_size, _CLASS_HEADER.size)
         else:
-            # Unverified (overview.md §2.3): u32 dll_index, then the class ID words a, b, then the superclass ID.
+            # Verified: u32 dll_index, then the class ID words a, b, then the superclass ID.
             dll_index, a, b, superclass = _CLASS_HEADER.unpack_from(header.data)
             entry.dll_index = dll_index
             entry.class_id = ClassID(a, b)
             entry.superclass_id = superclass
-            if dlls is not None:
+            if dlls is not None and dll_index not in DLL_NONE:
                 entry.dll = dlls.get(dll_index)
+                if entry.dll is None:
+                    warnings.append("{:s} entry {:d}: DLL index {:d} outside the DLL directory".format(
+                        stream.name, index, dll_index))
         name = chunk.find(CHUNK_CLASS_NAME)
         if name is not None:
             entry.name = name.string()

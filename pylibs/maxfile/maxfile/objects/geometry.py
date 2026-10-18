@@ -3,11 +3,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Mesh geometry: Editable Poly, PolyMeshObject and Editable Mesh (``docs/format/overview.md`` §6.1-6.3).
+Mesh geometry: Editable Poly, PolyMeshObject and Editable Mesh (``docs/format/overview.md`` §6.2-6.3).
 
-All chunk layouts here come from the overview and are unverified on real files. The decoders never trust a
-count or an index: counts are capped to the data actually present, and faces that use out-of-range vertices are
-dropped (with a warning), together with their material ID, smoothing group and map faces.
+The layouts below were checked on every mesh of the local corpus (4,566 Editable Poly / PolyMeshObject meshes with
+2,037,565 polygons, 5,694 Editable Mesh meshes with 4,382,904 triangles): all chunks are consumed exactly, no face
+uses a vertex index out of range, and every map channel has one map face per face with the same corner count and
+in-range map vertex indices (except 13 Editable Poly channels in one file, which the reader drops). The decoders
+still never trust a count or an index: counts are capped to the data actually present, and faces that use
+out-of-range vertices are dropped (with a warning), together with their material ID, smoothing group and map faces.
 """
 
 __all__ = (
@@ -25,37 +28,42 @@ from ..chunks import i32s
 from ..errors import DecodeError
 from ..registry import decoder
 
-# Unverified (overview.md §6.2, §6.3, "To verify" #11): material IDs on disk are assumed to be 0-based, so this is
-# added to get the 1-based IDs Max shows in its UI. If real files store them 1-based, set this to 0.
+# Material IDs on disk are 0-based; Max shows them 1-based. Verified: in Editable Poly faces the material field is
+# only written when it is non-zero (1,007,416 faces have it, never with the value 0; the other 1,030,149 faces are
+# ID 0), and an Editable Mesh converted from a Box (Scenes/SubDivSurfaces/Meshsmooth-Hammer.max) has IDs 0-5 for
+# the box's six sides, which Max numbers 1-6.
 MATERIAL_ID_DISK_OFFSET = 1
 
-CHUNK_MESH = 0x08FE             # Container holding the mesh, in Editable Poly / Mesh and primitive caches.
+CHUNK_MESH = 0x08FE             # Container holding the mesh in Editable Poly / Mesh objects.
 
-# Editable Poly. Unverified (overview.md §6.2).
+# Editable Poly (verified).
 POLY_VERTICES = 0x0100          # u32 count, then per vertex: u32 flags, f32[3]
+POLY_EDGES = 0x010A             # u32 count, then per edge: u32 flags, u32 v1, u32 v2
 POLY_FACES = 0x011A             # u32 count, then per face: u32 n, u32[n], u16 flags, optional fields by flag
-POLY_FACE_ALT = 0x0118          # container per face: 0x0110 (u32 n, u32[n]) and 0x0130 (u16 material ID)
-POLY_FACE_ALT_VERTS = 0x0110
-POLY_FACE_ALT_MATID = 0x0130
-POLY_FACES_ALT = 0x0310         # per face: u32 n, u32[n]
-POLY_MAP_CHANNEL = 0x0124       # i32 channel number
+POLY_MAP_COUNT = 0x0120         # u32: number of map channels (highest channel + 1)
+POLY_MAP_CHANNEL = 0x0124       # i32 channel number; the next 0x0128 / 0x012B belong to it
 POLY_MAP_VERTICES = 0x0128      # u32 count, f32[3] each
-POLY_MAP_FACES = 0x012B         # per face: u32 n, u32[n]
-# Optional per-face fields in 0x011A, in this order. Unverified (overview.md §6.2, "To verify" #7): order and meaning.
-FACE_FLAG_UNKNOWN_2U16 = 0x01   # u16[2], meaning unknown
-FACE_FLAG_MATERIAL = 0x08       # u16 material ID
-FACE_FLAG_SMOOTHING = 0x10      # u32, likely smoothing groups
-FACE_FLAG_TRIANGULATION = 0x20  # u32[2 * (n - 3)], likely the polygon's triangulation
-_KNOWN_FACE_FLAGS = FACE_FLAG_UNKNOWN_2U16 | FACE_FLAG_MATERIAL | FACE_FLAG_SMOOTHING | FACE_FLAG_TRIANGULATION
+POLY_MAP_FACES = 0x012B         # per face: u32 n, u32[n] map vertex indices (no count)
+# Optional per-face fields in 0x011A, in this order (verified: these sizes consume every face chunk exactly).
+FACE_FLAG_UNKNOWN = 0x01        # u32, meaning unknown (values 1, 2, 4, 5 and large ones)
+FACE_FLAG_MATERIAL = 0x08       # u16 material ID, 0-based; only present when non-zero
+FACE_FLAG_SMOOTHING = 0x10      # u32 smoothing groups; only present when non-zero
+# u32[2 * (n - 3)]: the polygon's triangulation diagonals (corner indices < n); present exactly on faces with more
+# than three corners.
+FACE_FLAG_DIAGONALS = 0x20
+_KNOWN_FACE_FLAGS = FACE_FLAG_UNKNOWN | FACE_FLAG_MATERIAL | FACE_FLAG_SMOOTHING | FACE_FLAG_DIAGONALS
 
-# Editable Mesh. Unverified (overview.md §6.3).
+# Editable Mesh (verified).
 MESH_VERTICES = 0x0914          # u32 count, f32[3] each
 MESH_FACES = 0x0912             # u32 count, per face: u32[3] vertices, u32 smoothing, u16 flags, u16 material ID
-MESH_MAP_CHANNEL = (0x0924, 0x0959)  # i32 channel number
-MESH_MAP_VERTICES = 0x2394      # u32 count, f32[3] each (class 0x19 uses 0x0916)
-MESH_MAP_FACES = 0x2396         # u32 count, u32[3] each (class 0x19 uses 0x0918)
-MESH_MAP_VERTICES_0x19 = 0x0916
-MESH_MAP_FACES_0x19 = 0x0918
+MESH_MAP_CHANNEL = 0x0959       # i32 channel number; the next 0x2394 / 0x2396 belong to it
+MESH_MAP_VERTICES = 0x2394      # u32 count, f32[3] each
+MESH_MAP_FACES = 0x2396         # u32 count, u32[3] each
+# Face flags bits 0-2: edge a-b, b-c, c-a visible (unset = a hidden diagonal of a polygon split into triangles).
+TRI_EDGE_VISIBILITY_MASK = 0x07
+# Kept for older callers; not chunk types of their own in real files.
+MESH_MAP_VERTICES_0x19 = MESH_MAP_VERTICES
+MESH_MAP_FACES_0x19 = MESH_MAP_FACES
 
 _U32 = struct.Struct("<I")
 _U16 = struct.Struct("<H")
@@ -77,18 +85,22 @@ class MeshData:
     """
     A polygon mesh as stored by Max.
 
-    ``faces`` are polygons as vertex-index tuples in Max's corner order. ``material_ids`` are 1-based (see
-    :data:`MATERIAL_ID_DISK_OFFSET`), ``smoothing_groups`` are 32-bit masks (0 = none stored). ``map_channels``
-    is keyed by the channel number as stored: 0 vertex colour, 1+ UV channels, -1 / -2 illumination / alpha
-    (Max's convention; unverified in files, "To verify" #8).
+    ``faces`` are polygons as vertex-index tuples in Max's corner order. ``material_ids`` are 1-based (the IDs Max
+    shows, see :data:`MATERIAL_ID_DISK_OFFSET`), ``smoothing_groups`` are 32-bit masks (0 = none). ``map_channels``
+    is keyed by the channel number as stored: 0 vertex colour, 1+ texture channels, -1 / -2 illumination / alpha
+    (the corpus has channels -2 to 3; numbering is Max's documented convention, the meaning of 0 / -1 / -2 isn't
+    checked against files).
     """
     positions: list[tuple[float, float, float]]
     faces: list[tuple[int, ...]]
     material_ids: list[int]
     smoothing_groups: list[int]
     map_channels: dict[int, MapChannel]
-    source: str                 # "editable_poly", "editable_mesh" or "primitive_cache".
+    source: str                 # "editable_poly" or "editable_mesh".
     warnings: list[str] = dataclasses.field(default_factory=list)
+    edge_visibility: list[int] | None = None
+    """Triangle meshes only: per face, bits 0-2 = edge a-b, b-c, c-a visible. Hidden edges are the diagonals of
+    the polygons Max shows (e.g. a box side is two triangles sharing one hidden edge)."""
 
     def stats(self) -> dict:
         """Counts for reports: vertices, faces, corners, channel numbers, distinct material IDs."""
@@ -100,6 +112,13 @@ class MeshData:
             "material_ids": sorted(set(self.material_ids)),
             "smoothing": any(self.smoothing_groups),
         }
+
+    def bounds(self):
+        """``((min x, y, z), (max x, y, z))`` of the vertex positions, or None for an empty mesh."""
+        if not self.positions:
+            return None
+        xs, ys, zs = zip(*self.positions)
+        return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
 
 
 # -----------------------------------------------------------------------------
@@ -150,10 +169,40 @@ def _channel_number(chunk, warnings):
     return values[0]
 
 
+def _channels(mesh_chunk, number_type, vertex_type, face_type, read_faces, warnings):
+    """Map channels: each channel-number chunk is followed by its vertex and face chunks (verified order)."""
+    found = []      # [number, vertices, faces]
+    for child in mesh_chunk.children:
+        if child.type == number_type:
+            found.append([_channel_number(child, warnings), None, None])
+        elif child.type in (vertex_type, face_type):
+            if not found:
+                warnings.append("map chunk 0x{:04X} before any channel number; dropped".format(child.type))
+                continue
+            slot = 1 if child.type == vertex_type else 2
+            if found[-1][slot] is not None:
+                warnings.append("map channel {!s}: second 0x{:04X} chunk dropped".format(found[-1][0], child.type))
+                continue
+            found[-1][slot] = _vec3s(child, "map vertex", warnings) if slot == 1 else read_faces(child)
+    channels = {}
+    for number, verts, faces in found:
+        if number is None:
+            continue
+        if verts is None or faces is None:
+            if verts is not None or faces is not None:
+                warnings.append("map channel {:d} has vertices or faces missing; dropped".format(number))
+            continue
+        if number in channels:
+            warnings.append("map channel {:d} appears twice; the second is dropped".format(number))
+            continue
+        channels[number] = MapChannel(verts, faces)
+    return channels
+
+
 # -----------------------------------------------------------------------------
 # Editable Poly (§6.2)
 
-def _poly_faces_011a(chunk, warnings):
+def _poly_faces(chunk, warnings):
     data = chunk.data
     faces, material_ids, smoothing = [], [], []
     if len(data) < 4:
@@ -163,7 +212,6 @@ def _poly_faces_011a(chunk, warnings):
     offset = 4
     unknown_flags = 0
     size = len(data)
-    # Unverified (overview.md §6.2): u32 n, u32[n] vertices, u16 flags, then the optional fields in flag order.
     while len(faces) < count:
         try:
             (n,) = _U32.unpack_from(data, offset)
@@ -176,7 +224,7 @@ def _poly_faces_011a(chunk, warnings):
             unknown_flags |= flags & ~_KNOWN_FACE_FLAGS
             material = 0
             group = 0
-            if flags & FACE_FLAG_UNKNOWN_2U16:
+            if flags & FACE_FLAG_UNKNOWN:
                 offset += 4
             if flags & FACE_FLAG_MATERIAL:
                 (material,) = _U16.unpack_from(data, offset)
@@ -184,7 +232,7 @@ def _poly_faces_011a(chunk, warnings):
             if flags & FACE_FLAG_SMOOTHING:
                 (group,) = _U32.unpack_from(data, offset)
                 offset += 4
-            if flags & FACE_FLAG_TRIANGULATION:
+            if flags & FACE_FLAG_DIAGONALS:
                 offset += 8 * max(n - 3, 0)
             if offset > size:
                 raise struct.error("face fields past the end")
@@ -197,24 +245,9 @@ def _poly_faces_011a(chunk, warnings):
     if unknown_flags:
         warnings.append("face chunk 0x011A: unknown face flag bits 0x{:04X} (assumed to carry no data)".format(
             unknown_flags))
+    if offset != size and len(faces) == count:
+        warnings.append("face chunk 0x011A: {:d} byte(s) left after the last face".format(size - offset))
     return faces, material_ids, smoothing
-
-
-def _poly_faces_0118(chunks, warnings):
-    faces, material_ids = [], []
-    for chunk in chunks:
-        verts = chunk.find(POLY_FACE_ALT_VERTS)
-        if verts is None:
-            warnings.append("face chunk 0x0118 without 0x0110 vertices; skipped")
-            continue
-        found, _ = _polygons(verts.data, 0, 1, "face chunk 0x0110", warnings)
-        if not found:
-            continue
-        faces.append(found[0])
-        mat = chunk.find(POLY_FACE_ALT_MATID)
-        material = _U16.unpack_from(mat.data, 0)[0] if mat is not None and mat.payload_size >= 2 else 0
-        material_ids.append(material + MATERIAL_ID_DISK_OFFSET)
-    return faces, material_ids, [0] * len(faces)
 
 
 def read_poly_mesh(mesh_chunk, source="editable_poly") -> MeshData:
@@ -226,27 +259,15 @@ def read_poly_mesh(mesh_chunk, source="editable_poly") -> MeshData:
         warnings.append("no 0x0100 vertex chunk")
     else:
         positions = [(x, y, z) for _flags, x, y, z in _counted_records(vertices, _POLY_VERTEX, "vertex", warnings)]
-
-    # Unverified (overview.md §6.2): 0x011A is the main face layout; 0x0310 and 0x0118 are alternatives.
     face_chunk = mesh_chunk.find(POLY_FACES)
-    if face_chunk is not None:
-        faces, material_ids, smoothing = _poly_faces_011a(face_chunk, warnings)
-    elif mesh_chunk.find(POLY_FACES_ALT) is not None:
-        faces, _ = _polygons(mesh_chunk.find(POLY_FACES_ALT).data, 0, None, "face chunk 0x0310", warnings)
-        material_ids = [MATERIAL_ID_DISK_OFFSET] * len(faces)
-        smoothing = [0] * len(faces)
+    if face_chunk is None:
+        warnings.append("no 0x011A face chunk")
+        faces, material_ids, smoothing = [], [], []
     else:
-        faces, material_ids, smoothing = _poly_faces_0118(mesh_chunk.find_all(POLY_FACE_ALT), warnings)
-        if not faces:
-            warnings.append("no face chunk (0x011A, 0x0310 or 0x0118)")
-
-    # Unverified (overview.md §6.2): channels are matched to their vertices and faces by order of appearance.
-    numbers = [_channel_number(c, warnings) for c in mesh_chunk.find_all(POLY_MAP_CHANNEL)]
-    map_verts = [_vec3s(c, "map vertex", warnings) for c in mesh_chunk.find_all(POLY_MAP_VERTICES)]
-    map_faces = [_polygons(c.data, 0, None, "map face chunk 0x012B", warnings)[0]
-                 for c in mesh_chunk.find_all(POLY_MAP_FACES)]
-    mesh = MeshData(positions, faces, material_ids, smoothing, {}, source, warnings)
-    _attach_channels(mesh, numbers, map_verts, map_faces)
+        faces, material_ids, smoothing = _poly_faces(face_chunk, warnings)
+    channels = _channels(mesh_chunk, POLY_MAP_CHANNEL, POLY_MAP_VERTICES, POLY_MAP_FACES,
+                         lambda c: _polygons(c.data, 0, None, "map face chunk 0x012B", warnings)[0], warnings)
+    mesh = MeshData(positions, faces, material_ids, smoothing, channels, source, warnings)
     _validate(mesh)
     return mesh
 
@@ -262,45 +283,25 @@ def read_tri_mesh(mesh_chunk, source="editable_mesh", map_vertex_type=MESH_MAP_V
     positions = _vec3s(vertices, "vertex", warnings) if vertices is not None else []
     if vertices is None:
         warnings.append("no 0x0914 vertex chunk")
-    faces, material_ids, smoothing = [], [], []
+    faces, material_ids, smoothing, visibility = [], [], [], []
     face_chunk = mesh_chunk.find(MESH_FACES)
     if face_chunk is None:
         warnings.append("no 0x0912 face chunk")
     else:
-        # Unverified (overview.md §6.3): u32[3] vertices, u32 smoothing groups, u16 flags, u16 material ID.
-        for a, b, c, group, _flags, material in _counted_records(face_chunk, _MESH_FACE, "face", warnings):
+        for a, b, c, group, flags, material in _counted_records(face_chunk, _MESH_FACE, "face", warnings):
             faces.append((a, b, c))
             smoothing.append(group)
             material_ids.append(material + MATERIAL_ID_DISK_OFFSET)
-
-    numbers = [_channel_number(c, warnings) for c in mesh_chunk.children if c.type in MESH_MAP_CHANNEL]
-    map_verts = [_vec3s(c, "map vertex", warnings) for c in mesh_chunk.find_all(map_vertex_type)]
-    map_faces = [[tuple(f) for f in _counted_records(c, _TRI, "map face", warnings)]
-                 for c in mesh_chunk.find_all(map_face_type)]
-    mesh = MeshData(positions, faces, material_ids, smoothing, {}, source, warnings)
-    _attach_channels(mesh, numbers, map_verts, map_faces)
+            visibility.append(flags & TRI_EDGE_VISIBILITY_MASK)
+    channels = _channels(mesh_chunk, MESH_MAP_CHANNEL, map_vertex_type, map_face_type,
+                         lambda c: [tuple(f) for f in _counted_records(c, _TRI, "map face", warnings)], warnings)
+    mesh = MeshData(positions, faces, material_ids, smoothing, channels, source, warnings, visibility)
     _validate(mesh)
     return mesh
 
 
 # -----------------------------------------------------------------------------
-# Channels and validation
-
-def _attach_channels(mesh, numbers, map_verts, map_faces):
-    count = max(len(numbers), len(map_verts), len(map_faces))
-    if not (len(numbers) == len(map_verts) == len(map_faces)):
-        mesh.warnings.append(
-            "map data out of step: {:d} channel number(s), {:d} vertex and {:d} face block(s); unmatched blocks "
-            "dropped".format(len(numbers), len(map_verts), len(map_faces)))
-    for i in range(count):
-        if i >= len(numbers) or i >= len(map_verts) or i >= len(map_faces) or numbers[i] is None:
-            continue
-        number = numbers[i]
-        if number in mesh.map_channels:
-            mesh.warnings.append("map channel {:d} appears twice; the second is dropped".format(number))
-            continue
-        mesh.map_channels[number] = MapChannel(map_verts[i], map_faces[i])
-
+# Validation
 
 def _validate(mesh):
     """Drop faces with bad vertex indices, and channels that don't line up with the faces."""
@@ -315,6 +316,8 @@ def _validate(mesh):
         else:
             nmap = len(channel.vertices)
             for i, (face, map_face) in enumerate(zip(mesh.faces, channel.faces)):
+                if not keep[i]:
+                    continue    # Dropped below anyway (the corpus has a few 0-corner faces with map faces).
                 if len(face) != len(map_face):
                     problem = "face {:d} has {:d} corners, the mesh face {:d}".format(i, len(map_face), len(face))
                     break
@@ -330,6 +333,8 @@ def _validate(mesh):
         mesh.faces = [f for f, k in zip(mesh.faces, keep) if k]
         mesh.material_ids = [m for m, k in zip(mesh.material_ids, keep) if k]
         mesh.smoothing_groups = [s for s, k in zip(mesh.smoothing_groups, keep) if k]
+        if mesh.edge_visibility is not None:
+            mesh.edge_visibility = [e for e, k in zip(mesh.edge_visibility, keep) if k]
         for channel in mesh.map_channels.values():
             channel.faces = [f for f, k in zip(channel.faces, keep) if k]
 
@@ -346,7 +351,8 @@ def _mesh_chunk(obj):
     return chunk
 
 
-@decoder(0x192F60981BF8338D, 0x000000005D21369A, kind="geometry.mesh", name="Editable Poly / PolyMeshObject")
+@decoder(0x192F60981BF8338D, 0x000000005D21369A, kind="geometry.mesh", name="Editable Poly / PolyMeshObject",
+         superclass_id=0x10, verified=True)
 def editable_poly(obj, ctx):
     """Polygon mesh from the 0x08FE container (Editable Poly layout)."""
     mesh = read_poly_mesh(_mesh_chunk(obj), "editable_poly")
@@ -354,7 +360,7 @@ def editable_poly(obj, ctx):
     return mesh
 
 
-@decoder(0x00000000E44F10B3, kind="geometry.mesh", name="Editable Mesh")
+@decoder(0x00000000E44F10B3, kind="geometry.mesh", name="Editable Mesh", superclass_id=0x10, verified=True)
 def editable_mesh(obj, ctx):
     """Triangle mesh from the 0x08FE container (Editable Mesh layout)."""
     mesh = read_tri_mesh(_mesh_chunk(obj), "editable_mesh")

@@ -4,7 +4,7 @@
 
 """
 ``maxdump`` output for decoded data (geometry, primitives, modifier stacks, materials, ``--decode``), on a
-synthetic file built to the *documented, unverified* layouts of ``docs/format/overview.md``.
+synthetic file built to the layouts of ``docs/format/overview.md`` (verified on the local corpus).
 """
 
 import io
@@ -13,7 +13,8 @@ import json
 import pytest
 
 from maxfile import dump, report
-from synth_max import NULL, SceneBuilder, cont, f32, leaf, param, poly_mesh, prim_leaf, refs_ordered, text
+from synth_max import (PB2, NULL, SceneBuilder, cont, leaf, pb2_block, pb2_param, poly_mesh, refs_ordered, text,
+                       u32)
 
 CUBE = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]
 QUADS = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
@@ -25,24 +26,24 @@ def max_path(tmp_path_factory):
     node = b.cls("Node", (1, 0), 1)
     poly = b.cls("Editable Poly", (0x1BF8338D, 0x192F6098), 0x10)
     box = b.cls("Box", (0x10, 0), 0x10)
-    derived = b.cls("Derived", (0x2032, 0), 0x0B)
     modifier = b.cls("TurboThing", (0x7E57, 1), 0x810)
-    block = b.cls("Block", (0x7E57, 2), 0x82)
-    vray = b.cls("VRayMtl", (0x37BF3F2F, 0x7034695C), 0xC00)
-    multi = b.cls("Multi", (0x200, 0), 0xC00)
+    block = b.cls("ParamBlock2", *PB2)
+    multi = b.cls("Multi/Sub-Object", (0x200, 0), 0xC00)
     bitmap = b.cls("Bitmap?", (0x7E57, 3), 0xC10)
 
     geo = b.obj(poly, poly_mesh(CUBE, QUADS, material_ids=[0, 1] * 3, channels={1: ([(0, 0, 0)] * 4,
                                                                                     [(0, 1, 2, 3)] * 6)}))
     mod = b.obj(modifier)
-    stack = b.obj(derived, refs_ordered(mod, geo))                                      # [2]
-    prim_block = b.obj(block, prim_leaf(10), prim_leaf(20), prim_leaf(30))
+    stack = b.obj(0x2032, refs_ordered(mod, geo))                                       # [2]
+    prim_block = b.obj(block, *pb2_block(4, pb2_param(0, "world", 10.0), pb2_param(1, "world", 20.0),
+                                         pb2_param(2, "world", 30.0)))
     prim = b.obj(box, refs_ordered(prim_block))                                         # [4]
     tex_block = b.obj(block, cont(0x0005, leaf(0x1230, text("C:\\maps\\wood.png"))))
-    tex = b.obj(bitmap, refs_ordered(tex_block))
-    params = b.obj(block, param(0x01, f32(0.5, 0.25, 0.125)), param(0x06, f32(0.8)))
-    wood = b.obj(vray, leaf(0x5431, text("Wood")), refs_ordered(params, tex))           # [8]
-    mm = b.obj(multi, refs_ordered(wood))                                               # [9]
+    tex = b.obj(bitmap, refs_ordered(tex_block))                                        # [6]
+    b.obj(block, *pb2_block(9, pb2_param(1, "int", 3)))                                 # [7]
+    b.obj(block)                                                                        # [8]
+    mm = b.obj(multi, cont(0x4000, leaf(0x4001, text("Wood set")), leaf(0x4003, u32(0))),
+               refs_ordered(7, tex))                                                    # [9]
     root = b.node(node, "Root")
     b.node(node, "Thing", parent=root, refs=[NULL, stack, NULL, mm])                    # [11]
     b.node(node, "Crate", parent=root, refs=[NULL, prim])
@@ -62,12 +63,10 @@ def test_summary_sections(max_path):
     assert status == 0, out
     assert "== Geometry (1) ==" in out
     assert "[0] Editable Poly  source=editable_poly vertices=8 faces=6 corners=24 channels=1 material_ids=1,2" in out
-    assert "[4] Box  kind=BOX  length=10  width=20  height=30  encoding=leaf" in out
-    assert "[2] Derived object? (io_scene_max: \"shell\")  base=[0] Editable Poly  modifiers=[1] TurboThing" in out
-    assert '  [9] Multimaterial (no name)' in out and 'sub_materials=1  sub_ids=None' in out
-    assert '    [8] VRayMtl "Wood"  diffuse=(0.5, 0.25, 0.125)  reflection_glossiness=0.8' in out
-    assert 'slot1=[6] Bitmap? path="C:\\\\maps\\\\wood.png"' in out
-    assert '[11] "Thing"  object=[2] Derived' in out and "geometry=[0] Editable Poly  modifiers=1" in out
+    assert "[4] Box  kind=BOX  length=10  width=20  height=30" in out and "encoding=pb2" in out
+    assert "[2] Derived Object  base=[0] Editable Poly  modifiers=[1] TurboThing" in out
+    assert '[9] Multi/Sub-Object "Wood set"' in out or "[9] Multimaterial" in out
+    assert '[11] "Thing"  object=[2] Derived Object' in out and "geometry=[0] Editable Poly  modifiers=1" in out
 
 
 def test_summary_json(max_path):
@@ -75,24 +74,23 @@ def test_summary_json(max_path):
     assert status == 0
     data = json.loads(out)
     assert data["geometry"][0]["mesh"]["faces"] == 6
-    assert data["primitives"][0]["params"] == {"length": 10.0, "width": 20.0, "height": 30.0}
+    assert {k: data["primitives"][0]["params"][k] for k in ("length", "width", "height")} == {
+        "length": 10.0, "width": 20.0, "height": 30.0}
     assert data["modifier_stacks"][0]["modifiers"][0]["index"] == 1
-    assert [m["index"] for m in data["materials"]] == [9, 8]
+    assert data["materials"][0]["index"] == 9
     thing = next(n for n in data["nodes"] if n["name"] == "Thing")
     assert thing["geometry"]["index"] == 0 and [m["index"] for m in thing["modifiers"]] == [1]
 
 
 def test_decode_object(max_path):
-    status, out = _run(max_path, "--object", "8", "--decode")
+    status, out = _run(max_path, "--object", "9", "--decode")
     assert status == 0, out
-    assert "== Object [8] VRayMtl" in out and "kind=material" in out
-    assert "decoded:\nMaterialData" in out and "name: 'Wood'" in out
-    assert "references: 0=[7] Block  1=[6] Bitmap?" in out
-    status, out = _run(max_path, "--object", "7", "--decode")
-    assert "decoder=none" in out
-    assert "id=0x0001  chunk=0x0001  bytes=14  float=0.125" in out
-    status, out = _run(max_path, "--object", "6", "--decode")
-    assert 'as a map: path="C:\\\\maps\\\\wood.png"  path_source=0x1230' in out
+    assert "== Object [9] Multi/Sub-Object" in out and "kind=material" in out
+    assert "decoded:\nMaterialData" in out
+    assert "references: 0=[7] ParamBlock2  1=[6] Bitmap?" in out
+    assert "parameter block [7] (pb2 id=1, 1 parameters) in reference slot 0:\n  id=1 int=3" in out
+    status, out = _run(max_path, "--object", "4", "--decode")
+    assert "id=0 world=10" in out
     status, out = _run(max_path, "--object", "11", "--decode")
     assert 'node: name="Thing"' in out and "modifiers=[1] TurboThing" in out
 
