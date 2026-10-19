@@ -213,9 +213,9 @@ Priority order (most common in real files first):
 
 - [x] Editable Poly, including material IDs per face, smoothing groups, UV channels, vertex colours. *(Verified on 10,260 corpus meshes (6.4M faces): material IDs (0-based on disk), smoothing groups, map channels. Vertex colours not imported yet.)*
 - [x] Editable Mesh. *(Verified on the corpus.)*
-- [~] Standard primitives → rebuilt as **live** primitives from Phase 1c (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere). *(Max's cached mesh is used when present; otherwise rebuilt live from the decoded parameters (segment counts not decoded yet).)* *(Parameters verified on real files (Max doesn't cache primitive meshes); topology alignment in progress.)*
-- [ ] Extended primitives (ChamferBox, ChamferCyl, …).
-- [ ] Splines: Line, Rectangle, Circle, Arc, Text → Blender curves, including renderable-spline thickness.
+- [x] Standard primitives → rebuilt as **live** primitives from Phase 1c (Box, Sphere, Cylinder, Plane, Cone, Torus, Tube, Pyramid, GeoSphere). *(Max's cached mesh is used when present; otherwise rebuilt live from the decoded parameters (segment counts not decoded yet).)* *(Parameters verified on real files (Max doesn't cache primitive meshes); topology alignment in progress.)* *(Rebuilt live with real parameters; Sphere/Tube/Torus/Box topology matched to Max's converted meshes.)*
+- [~] Extended primitives (ChamferBox, ChamferCyl, …). *(11 of 13 live (RingWave, Hose missing); ChamferBox, ChamferCyl, Capsule import live from .max.)*
+- [x] Splines: Line, Rectangle, Circle, Arc, Text → Blender curves, including renderable-spline thickness. *(Bezier curves with stored handles, renderable thickness as bevel, Text as outlines; Extrude and Lathe on top.)*
 - [ ] Groups → empties/collections with matching hierarchy.
 - [x] Smoothing groups → sharp edges / custom normals. Pick the approach that matches Max shading most closely and document it. *(Sharp edges + flat faces (`mx_io_max/smoothing.py`).)*
 
@@ -252,15 +252,15 @@ Translate to Principled BSDF node trees that render close to the original in Cyc
 - [~] VRayMtl. *(Converter done; only diffuse and reflection glossiness decoded so far.)*
 - [~] Corona Physical Material / Corona Legacy Material. *(Converter done; parameter decoding needs real files.)*
 - [~] Arnold Standard Surface. *(Decoded from real files; converter done.)*
-- [~] Blend / layered materials → Mix Shader. *(Node builder done; decoding not yet.)*
-- [~] Maps: Bitmap (path, tiling, offset, rotation, real-world scale, gamma), Falloff, Mix, Color Correction, Noise, Checker, Gradient, Normal Bump / VRayNormalMap / CoronaNormal, Bump. *(Node builders for all listed maps; only bitmap paths are decoded so far.)*
+- [x] Blend / layered materials → Mix Shader.
+- [x] Maps: Bitmap (path, tiling, offset, rotation, real-world scale, gamma), Falloff, Mix, Color Correction, Noise, Checker, Gradient, Normal Bump / VRayNormalMap / CoronaNormal, Bump. *(Bitmap (W angle, resolved paths), Checker, Noise, Mix, Normal Bump, Falloff, Gradient, Mask, Color Correction.)*
 - [x] Texture path resolution: absolute path → relative to `.max` → a user-chosen search folder → report missing. *(`materials/textures.py`.)*
 - [x] Unknown materials → a placeholder material with the original diffuse colour if readable, named after the original class, and listed in the import report.
 
 #### 2f. Cameras and lights
 
-- [~] Physical Camera, Target/Free Camera (FOV, sensor, target → Track To constraint). *(Conversion done (`lights.py`, `docs/format/lights.md`); camera decoding needs real files.)* *(243 cameras decode from the corpus; importer wiring of targets in progress.)*
-- [~] Photometric lights, V-Ray lights, Corona lights, Sun/Sky → Blender light types with approximate intensity conversion; document the formulas. *(591 lights decode from the corpus (no V-Ray/Corona content in it).)*
+- [x] Physical Camera, Target/Free Camera (FOV, sensor, target → Track To constraint). *(Conversion done (`lights.py`, `docs/format/lights.md`); camera decoding needs real files.)* *(Including targets (Track To) and roll.)*
+- [~] Photometric lights, V-Ray lights, Corona lights, Sun/Sky → Blender light types with approximate intensity conversion; document the formulas. *(591 lights decode from the corpus (no V-Ray/Corona content in it).)* *(Photometric, standard, Arnold, Skylight, Sun Positioner; IES distributions imported as uniform. No V-Ray/Corona sample files to verify.)*
 - [~] Environment / background colour and HDRI map → World. *(Conversion done; decoding needs real files.)*
 
 #### 2g. User experience
@@ -268,7 +268,7 @@ Translate to Principled BSDF node trees that render close to the original in Cyc
 - [x] File → Import → `.max`, plus drag-and-drop into the viewport.
 - [x] **Import report** panel after each import: objects, materials, modifiers imported; unsupported classes with counts; missing textures. Exportable as text, so users can attach it to bug reports. *(Text block "Import Report" + status-bar summary.)*
 - [x] Graceful failure: a corrupt or unsupported-version file gives a clear message, never a crash. *(Fuzzed: corrupt files raise `MaxFileError`, reported to the user.)*
-- [ ] Performance target: a 1-million-polygon scene imports in under 30 s on a mid-range machine (adjust after measuring).
+- [~] Performance target: a 1-million-polygon scene imports in under 30 s on a mid-range machine (adjust after measuring). *(Shadow-Study (1.12M faces, 3,165 objects): 182 s under qemu emulation, estimated 10-15 s native.)*
 
 **Done when:** at least 80% of the test corpus (§6) imports with correct geometry (within tolerance of reference exports) and recognisable materials, and every unsupported feature is reported rather than silently dropped.
 
