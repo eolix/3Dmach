@@ -240,7 +240,8 @@ class ImportTest(unittest.TestCase):
         self.assertEqual((len(mesh.vertices), len(mesh.polygons)), (8, 6))
         self.assertEqual(sum(1 for v in mesh.attributes["sharp_edge"].data if v.value), 8)
         self.assertIn("UVMap", mesh.uv_layers)
-        self.assertEqual(list(mesh["mx_material_ids"]), [1, 2, 3, 3, 3, 3])
+        from mx_io_max import mesh_build
+        self.assertEqual(list(mesh_build.face_material_ids(mesh)), [1, 2, 3, 3, 3, 3])
         # Stack imported bottom-up, stopping at the unsupported modifier.
         self.assertEqual([m.name for m in stacked.modifiers], ["TurboSmooth", "Shell"])
         report = bpy.data.texts["Import Report"].as_string()

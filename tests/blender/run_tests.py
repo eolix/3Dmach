@@ -23,6 +23,8 @@ Each test file is run as::
     blender -b --factory-startup --python-exit-code 1 --python test_file.py
 
 and must exit non-zero on failure (the test files use ``unittest`` via ``_runner_util.main()``).
+``MX_CORPUS_DIR`` (the local corpus of real ``.max`` files, never committed) is passed through to the tests that
+use it (``test_io_max_corpus.py``); ``--corpus DIR`` sets it.
 This script exits non-zero when any test file fails.
 """
 
@@ -90,6 +92,8 @@ def main(argv=None):
     parser.add_argument("-k", dest="keyword", default=None, help="Only run test files whose name contains this")
     parser.add_argument("--timeout", type=int, default=600, help="Timeout per test file, in seconds")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print Blender output for passing tests too")
+    parser.add_argument("--corpus", default=os.environ.get("MX_CORPUS_DIR"),
+                        help="Local corpus of .max files for the corpus tests (default: $MX_CORPUS_DIR)")
     args = parser.parse_args(argv)
 
     if not args.blender:
@@ -112,6 +116,8 @@ def main(argv=None):
             env.pop(var, None)
         env["MX_TEST_ADDONS"] = ",".join(addons)
         env["MX_TEST_ROOT"] = ROOT_DIR
+        if args.corpus:
+            env["MX_CORPUS_DIR"] = os.path.abspath(args.corpus)
 
         for test_file in tests:
             name = os.path.basename(test_file)

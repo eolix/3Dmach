@@ -25,6 +25,7 @@ __all__ = (
     "kelvin_to_rgb",
     "light_from_params",
     "setup_world",
+    "world_from_light",
     "world_from_params",
 )
 
@@ -36,6 +37,10 @@ LUMENS_PER_WATT = 683.0
 STANDARD_LIGHT_WATTS = 1000.0
 # V-Ray / Corona sun with multiplier 1 is a physically bright sun; this gives a similar look at exposure 0.
 SUN_STRENGTH_PER_MULTIPLIER = 4.0
+# Angular diameter of the sun (degrees), for sun lamps made from sun systems.
+SUN_ANGLE = 0.526
+# Free / Target camera clipping when "Clip Manually" is off (Max then clips nothing): near and far, scene units.
+AUTO_CLIP = (0.1, 1.0e4)
 
 
 # Class names as reported by `maxfile`'s class registry (Max's scripting names).
@@ -44,6 +49,10 @@ PHOTOMETRIC = {"Free_Light", "Target_Light", "Free_Point", "Target_Point", "Free
 STANDARD_OMNI = {"Omnilight"}
 STANDARD_SPOT = {"Targetspot", "Freespot"}
 STANDARD_DIRECT = {"TargetDirectionallight", "Directionallight"}
+# Lights in physical units, for which the Physical camera's exposure value is meaningful. Sun systems are not:
+# the sun lamp's strength is tuned for exposure 0 (and the file doesn't say whether Max's exposure control used
+# the camera's EV).
+PHYSICAL_CLASSES = PHOTOMETRIC
 
 
 @dataclasses.dataclass
@@ -62,6 +71,10 @@ class LightDesc:
     enabled: bool = True
     source_class: str = ""
     target: bool = False                # Has a Max target node (needs a Track To constraint).
+    exposure: float = 0.0               # Blender light exposure (stops): power is multiplied by 2^exposure.
+    cutoff_distance: float | None = None    # Scene units: EEVEE custom distance (Max far attenuation end).
+    sun_angle: float | None = None      # SUN: angular diameter, degrees.
+    direction: tuple | None = None      # World vector the light shines along (sun systems), else from the node.
     notes: list = dataclasses.field(default_factory=list)
 
 
@@ -73,14 +86,15 @@ class CameraDesc:
     sensor_fit: str = "HORIZONTAL"
     ortho: bool = False
     ortho_scale: float = 10.0
-    clip_start: float = 0.1
-    clip_end: float = 1000.0
+    clip_start: float = AUTO_CLIP[0]
+    clip_end: float = AUTO_CLIP[1]
     shift_x: float = 0.0
     shift_y: float = 0.0
     use_dof: bool = False
     focus_distance: float = 10.0
     fstop: float = 8.0
     target: bool = False
+    exposure_value: float | None = None     # Physical camera EV (exposure control), when stored.
     source_class: str = ""
 
 
@@ -91,6 +105,9 @@ class WorldDesc:
     environment_map: str | None = None  # Equirectangular image path, as stored.
     sky: bool = False                   # Physical sky (from a sun/sky system).
     sun_direction: tuple | None = None  # Unit vector towards the sun, for the sky texture.
+    sun_disc: bool = False              # Draw the sun in the sky (off when a sun lamp lights the scene).
+    source_class: str = ""
+    notes: list = dataclasses.field(default_factory=list)
 
 
 def kelvin_to_rgb(kelvin):
@@ -131,24 +148,36 @@ def _spot_angles(params, desc):
     desc.spot_blend = min(max(1.0 - hotspot / falloff, 0.0), 1.0)
 
 
-def photometric_power_watts(params, solid_angle):
-    """Luminous intensity/flux/illuminance of a photometric light to Blender watts."""
+def photometric_power_watts(params, solid_angle, unit_scale=1.0):
+    """
+    Luminous intensity/flux/illuminance of a photometric light to Blender watts. ``unit_scale`` (metres per scene
+    unit) converts the "lux at" distance, which ``maxfile`` gives in scene units (``lux_at_distance``).
+    """
     units = params.get("intensity_type", "candelas")
     intensity = params.get("intensity", 1500.0)
     dimmer = params.get("dimmer", 100.0) / 100.0 if params.get("use_dimmer", False) else 1.0
     if units == "lumens":
         lumens = intensity
     elif units == "lux":
-        # Illuminance at a distance (Max: "lux at" distance, metres) from an isotropic source.
-        distance = params.get("lux_distance", 1.0)
+        # Illuminance at a distance from an isotropic source: E = I / d², I = flux / solid angle.
+        if "lux_at_distance" in params:
+            distance = params["lux_at_distance"] * unit_scale
+        else:
+            distance = params.get("lux_distance", 1.0)      # Already in metres.
         lumens = intensity * distance * distance * solid_angle
     else:  # candelas
         lumens = intensity * solid_angle
     return lumens * dimmer / LUMENS_PER_WATT
 
 
-def light_from_params(class_name, params):
-    """Describe a Max light. Returns None for classes we don't know (the caller reports them)."""
+def light_from_params(class_name, params, unit_scale=1.0):
+    """
+    Describe a Max light. Returns None for classes we don't know (the caller reports them) and for lights that
+    only light the World (see :func:`world_from_light`).
+
+    ``unit_scale`` is the length of a scene unit in metres: intensities defined per scene unit (Arnold, V-Ray /
+    Corona default units) and the photometric "lux at" distance are converted with it.
+    """
     desc = LightDesc(name=params.get("name", class_name), source_class=class_name)
     desc.enabled = params.get("on", params.get("enabled", True))
     desc.cast_shadow = params.get("cast_shadows", params.get("shadows_on", True))
@@ -164,14 +193,14 @@ def light_from_params(class_name, params):
             half = desc.spot_size / 2.0
             solid_angle = 2.0 * math.pi * (1.0 - math.cos(half))
             # Blender spots emit like a point light clipped to the cone: give them the point-equivalent power.
-            desc.power = photometric_power_watts(params, solid_angle) * (4.0 * math.pi / solid_angle)
+            desc.power = photometric_power_watts(params, solid_angle, unit_scale) * (4.0 * math.pi / solid_angle)
         elif distribution == "web":
             desc.kind = "POINT"
-            desc.power = photometric_power_watts(params, 4.0 * math.pi)
+            desc.power = photometric_power_watts(params, 4.0 * math.pi, unit_scale)
             desc.notes.append("Photometric web (IES) distribution imported as uniform")
         else:
             solid_angle = math.pi if distribution == "uniform_diffuse" else 4.0 * math.pi
-            desc.power = photometric_power_watts(params, solid_angle)
+            desc.power = photometric_power_watts(params, solid_angle, unit_scale)
             desc.kind = "POINT"
         if shape in {"rectangle", "disc"} and distribution != "spotlight":
             desc.kind = "AREA"
@@ -199,6 +228,26 @@ def light_from_params(class_name, params):
             desc.power = multiplier * STANDARD_LIGHT_WATTS
         if params.get("decay_type", "none") == "none" and desc.kind != "SUN":
             desc.notes.append("Standard light without decay: Blender lights always fall off with distance")
+        if params.get("use_far_atten") and params.get("far_atten_end", 0.0) > 0.0 and desc.kind != "SUN":
+            desc.cutoff_distance = params["far_atten_end"]
+            desc.notes.append("Far attenuation imported as the EEVEE custom distance (Cycles ignores it)")
+        return desc
+
+    if class_name == "Arnold_Light":
+        return _arnold_light(params, desc, unit_scale)
+
+    if class_name == "Sun_Positioner":
+        desc.kind = "SUN"
+        desc.power = SUN_STRENGTH_PER_MULTIPLIER
+        desc.sun_angle = SUN_ANGLE
+        towards_sun = params.get("sun_direction")
+        if towards_sun is not None:
+            desc.direction = tuple(-c for c in towards_sun)
+        else:
+            desc.notes.append("Sun Positioner without a sun direction: the sun shines straight down")
+            desc.direction = (0.0, 0.0, -1.0)
+        desc.notes.append("Sun Positioner imported as a sun lamp (strength {:g}) and a sky texture".format(
+            desc.power))
         return desc
 
     if class_name == "VRayLight":
@@ -230,8 +279,8 @@ def light_from_params(class_name, params):
         elif units in {"luminous", "luminous_power", 1}:
             desc.power = multiplier / LUMENS_PER_WATT
         else:
-            # "Default (image)" / radiance: multiplier is surface brightness, power grows with area.
-            desc.power = multiplier * area * math.pi
+            # "Default (image)" / radiance: multiplier is surface brightness, power grows with area (m²).
+            desc.power = multiplier * area * unit_scale * unit_scale * math.pi
         if params.get("invisible", False):
             desc.notes.append("Invisible VRayLight: set the light's camera ray visibility off")
         return desc
@@ -263,10 +312,87 @@ def light_from_params(class_name, params):
         elif units == "cd":
             desc.power = intensity * 4.0 * math.pi / LUMENS_PER_WATT
         else:  # Corona default units: W/(sr m²).
-            desc.power = intensity * area * math.pi
+            desc.power = intensity * area * unit_scale * unit_scale * math.pi
         return desc
 
     return None
+
+
+# Arnold light type -> Blender light type (and area shape).
+ARNOLD_KINDS = {
+    "point": ("POINT", None), "spot": ("SPOT", None), "distant": ("SUN", None),
+    "quad": ("AREA", "RECTANGLE"), "disk": ("AREA", "DISK"), "cylinder": ("POINT", None),
+    "photometric": ("POINT", None), "mesh": ("POINT", None),
+}
+
+
+def _arnold_light(params, desc, unit_scale):
+    """
+    Arnold Light. Arnold intensities are unitless (per scene unit): ``intensity x 2^exposure`` is taken as the
+    radiant intensity (W/sr) of point and spot lights, the radiance of normalised area lights times their area
+    (so the power doesn't depend on the size), the irradiance (W/m²) of distant lights. The exposure is kept as
+    the Blender light's exposure.
+    """
+    light_type = params.get("type", "point")
+    if light_type == "skydome":
+        return None     # World lighting: world_from_light.
+    desc.color = _light_color(params)
+    desc.exposure = params.get("exposure", 0.0)
+    intensity = params.get("intensity", 1.0)
+    kind, shape = ARNOLD_KINDS.get(light_type, ("POINT", None))
+    desc.kind = kind
+    if kind == "SUN":
+        desc.power = intensity
+        desc.sun_angle = SUN_ANGLE
+    elif kind == "AREA":
+        desc.shape = shape
+        if shape == "RECTANGLE":
+            desc.size = params.get("quad_x", 1.0)
+            desc.size_y = params.get("quad_y", desc.size)
+        else:
+            desc.size = desc.size_y = 2.0 * params.get("radius", 0.5)
+        desc.power = math.pi * intensity * unit_scale * unit_scale
+    else:
+        desc.power = 4.0 * math.pi * intensity * unit_scale * unit_scale
+        if kind == "SPOT":
+            cone = math.radians(params.get("spot_cone_angle", 60.0))
+            desc.spot_size = min(max(cone, 1e-3), math.pi)
+            desc.spot_blend = 0.0
+    if light_type in {"cylinder", "photometric", "mesh"}:
+        desc.notes.append("Arnold {:s} light approximated with a point light".format(light_type))
+    elif light_type not in ARNOLD_KINDS:
+        desc.notes.append("Arnold light type {:s} imported as a point light".format(light_type))
+    desc.notes.append("Arnold light intensity converted as intensity x 2^exposure per scene unit (approximation)")
+    return desc
+
+
+def world_from_light(class_name, params):
+    """A :class:`WorldDesc` for lights that light the whole scene (Skylight, Arnold skydome, sun systems)."""
+    if class_name == "Skylight":
+        desc = WorldDesc(color=tuple(params.get("color", (0.95, 0.95, 1.0)))[:3],
+                         strength=params.get("multiplier", 1.0), source_class=class_name)
+        if params.get("sky_map") is not None:
+            desc.notes.append("Skylight map not imported: the sky colour is used")
+        return desc
+    if class_name == "Arnold_Light" and params.get("type") == "skydome":
+        strength = params.get("intensity", 1.0) * 2.0 ** params.get("exposure", 0.0)
+        return WorldDesc(color=_light_color(params), strength=strength, source_class="Arnold skydome")
+    if class_name == "Sun_Positioner":
+        return WorldDesc(color=(0.05, 0.08, 0.12), sky=True, sun_direction=params.get("sun_direction"),
+                         source_class=class_name)
+    if class_name == "VRayLight" and params.get("type") == "dome":
+        return WorldDesc(color=_light_color(params), strength=params.get("multiplier", 1.0),
+                         source_class="VRayLight dome")
+    return None
+
+
+def exposure_from_ev(ev):
+    """
+    Blender exposure (stops) for a Max exposure value (EV at ISO 100), calibrated on middle grey: a scene of
+    average luminance 0.125 x 2^EV cd/m² (the reflected-light meter constant 12.5) renders at 0.18. Blender's
+    photometric scale (683 lm/W, a white diffuse surface at 1 W/m² renders at 1.0) puts 1.0 at 683 / pi cd/m².
+    """
+    return math.log2(0.18 * (LUMENS_PER_WATT / math.pi) / 0.125) - ev
 
 
 def camera_from_params(class_name, params):
@@ -291,6 +417,8 @@ def camera_from_params(class_name, params):
         desc.sensor_fit = {"horizontal": "HORIZONTAL", "vertical": "VERTICAL"}.get(axis, "AUTO")
         desc.lens_mm = desc.sensor_mm / (2.0 * math.tan(fov / 2.0))
         desc.focus_distance = params.get("target_distance", desc.focus_distance)
+    if params.get("exposure_value") is not None:
+        desc.exposure_value = params["exposure_value"]
     desc.ortho = params.get("orthographic", False) or params.get("orthoProjection", False)
     if desc.ortho:
         fov = 2.0 * math.atan(desc.sensor_mm / (2.0 * desc.lens_mm))
@@ -332,6 +460,13 @@ def create_light(desc, collection, scene_scale=1.0):
         light.shape = desc.shape
         light.size = desc.size * scene_scale
         light.size_y = desc.size_y * scene_scale
+    if desc.exposure:
+        light.exposure = desc.exposure
+    if desc.cutoff_distance:
+        light.use_custom_distance = True
+        light.cutoff_distance = desc.cutoff_distance * scene_scale
+    if desc.kind == "SUN" and desc.sun_angle is not None:
+        light.angle = math.radians(desc.sun_angle)
     light["mx_source_class"] = desc.source_class
     obj = bpy.data.objects.new(desc.name, light)
     obj.hide_viewport = obj.hide_render = not desc.enabled
@@ -360,12 +495,28 @@ def create_camera(desc, collection, scene_scale=1.0):
     return obj
 
 
-def add_target_constraint(obj, target):
-    """Point ``obj`` (camera or light, looking down -Z) at ``target`` like a Max target node."""
+def add_target_constraint(obj, target, roll=0.0):
+    """
+    Point ``obj`` (local -Z, +Y up as near world +Z as possible) at ``target`` like a Max Look At controller.
+
+    ``roll`` (radians, about the viewing axis) is added by a Transformation constraint mapping a zero range of the
+    target's location to a constant rotation about local Z, after the Track To.
+    """
     con = obj.constraints.new('TRACK_TO')
+    con.name = "Target"
     con.target = target
     con.track_axis = 'TRACK_NEGATIVE_Z'
     con.up_axis = 'UP_Y'
+    if roll:
+        tc = obj.constraints.new('TRANSFORM')
+        tc.name = "Roll"
+        tc.target = target
+        tc.map_from = 'LOCATION'
+        tc.map_to = 'ROTATION'
+        tc.from_min_x = tc.from_max_x = 0.0
+        tc.to_min_z_rot = tc.to_max_z_rot = roll
+        tc.mix_mode_rot = 'AFTER'
+        tc.owner_space = tc.target_space = 'WORLD'
     return con
 
 
@@ -400,5 +551,7 @@ def setup_world(scene, desc, image_loader=None):
             x, y, z = desc.sun_direction
             sky.sun_elevation = math.asin(max(-1.0, min(1.0, z)))
             sky.sun_rotation = math.atan2(x, y)
+        if hasattr(sky, "sun_disc"):
+            sky.sun_disc = desc.sun_disc
         tree.links.new(sky.outputs["Color"], bg.inputs["Color"])
     return world
