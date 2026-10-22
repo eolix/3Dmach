@@ -43,6 +43,29 @@ Linux arm64 is not supported by Blender 5.2's precompiled libraries.
 
 Install Xcode command line tools, CMake and Git LFS (e.g. with Homebrew), then `make update && make`.
 
+## If it doesn't start
+
+`bin/blender` needs the runtime folder next to it: `bin/5.2/` with `datafiles/` (fonts, icons, colour
+management), `python/` (Python's standard library) and `scripts/` (including the 3Dmach add-ons and `maxfile`).
+The build's **install step** creates it. `make` / `make ninja` always run it; building with `ninja` or
+`cmake --build` directly in the build folder does not. Symptoms of a missing or partial `5.2/` folder:
+`'fonts' data path not found`, `Font data directory "fonts/" could not be detected!`,
+`Fatal Python error: Failed to import encodings module`, followed by a GLX/EGL assertion on exit.
+
+Fix: run the install step, then start Blender from the build folder:
+
+```sh
+cmake --build ../build_linux --target install     # or: make ninja  (from the source folder)
+ls ../build_linux/bin/5.2                         # datafiles  python  scripts
+../build_linux/bin/blender
+```
+
+If `bin/5.2/python` is still missing, the precompiled libraries weren't fetched: run `make update` first
+(it downloads `lib/linux_x64`), then build again.
+
+On laptops with two GPUs, start it on the dedicated one with `switcherooctl launch ../build_linux/bin/blender`
+(or, for NVIDIA, `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia ../build_linux/bin/blender`).
+
 ## What the fork changes in the build
 
 - `source/creator/CMakeLists.txt` installs `pylibs/maxfile/maxfile` into `scripts/modules/` (see
