@@ -63,6 +63,40 @@ class TestSmoothing:
             smoothing.sharp_from_smoothing_groups(CUBE, [1])
 
 
+class TestSmoothingGroupsFromSharp:
+    """The exporter's inverse: smoothing groups that give back the same sharp edges / flat faces."""
+
+    def round_trip(self, sharp_edges, sharp_faces=None):
+        groups = smoothing.smoothing_groups_from_sharp(CUBE, sharp_edges, sharp_faces)
+        assert all(g == 0 or (g & (g - 1)) == 0 for g in groups)       # One group per face (or none).
+        return groups, smoothing.sharp_from_smoothing_groups(CUBE, groups)
+
+    def test_all_smooth_is_one_group(self):
+        groups, (edges, faces) = self.round_trip(set())
+        assert len(set(groups)) == 1 and groups[0] != 0
+        assert edges == set() and faces == [False] * 6
+
+    def test_all_sharp_box(self):
+        all_edges = {(min(f[i], f[(i + 1) % 4]), max(f[i], f[(i + 1) % 4])) for f in CUBE for i in range(4)}
+        groups, (edges, _faces) = self.round_trip(all_edges)
+        assert edges == all_edges
+        assert len(set(groups)) <= 3        # A cube needs 3 colours: opposite sides can share.
+
+    def test_caps_sharp_sides_smooth(self):
+        caps = {(0, 3), (2, 3), (1, 2), (0, 1), (4, 5), (5, 6), (6, 7), (4, 7)}
+        groups, (edges, _faces) = self.round_trip(caps)
+        assert edges == caps
+        assert len(set(groups[2:])) == 1
+
+    def test_flat_faces(self):
+        groups, (_edges, faces) = self.round_trip(set(), [True, False, False, False, False, False])
+        assert groups[0] == 0 and faces[0]
+
+    def test_length_mismatch(self):
+        with pytest.raises(ValueError):
+            smoothing.smoothing_groups_from_sharp(CUBE, (), [True])
+
+
 class TestMaterialIds:
 
     def test_single_material(self):

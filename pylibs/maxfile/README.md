@@ -127,6 +127,30 @@ the material tree with bitmap paths, classes the registry doesn't know (with cou
 and warnings. `--decode` prints an object's decoded dataclass, plus generic parameter-block and map readings. `docs/format/maxdump.md` explains the output
 and how to use it to work out a new class.
 
+## Writer (experimental)
+
+`maxfile.writer` writes `.max` files laid out like the ones Max 2015 saves, from a neutral scene model (nodes with
+transforms, Editable Poly meshes with material IDs / smoothing groups / map channels, Standard, Multi/Sub-Object and
+Physical materials with Bitmaps, the system unit). Everything is generated from code; values the reader doesn't
+decode are the dominant ones of the corpus files. Design, constants and risks: `docs/design/max-writer.md`.
+
+```python
+from maxfile.writer import EditablePoly, Node, Scene, StandardMaterial, Transform, write
+
+scene = Scene(unit="centimeters")
+box = EditablePoly(positions, polygons, material_ids=None, smoothing_groups=None, map_channels={})
+scene.add(Node("Box001", mesh=box, transform=Transform(position=(0, 0, 10)),
+               material=StandardMaterial("Red", diffuse=(0.8, 0.1, 0.1))))
+write(scene, "box.max")
+```
+
+```sh
+python -m maxfile.writer.samples OUT_DIR    # the test-file ladder for checking the writer in Max, with a README
+```
+
+It has not been checked in Max yet: the files open in `maxfile` / `maxdump` and have the structure of real 2015
+files (`tests/test_writer*.py`), which doesn't prove that Max accepts them.
+
 ## Adding a decoder
 
 1. Investigate the class with `maxdump` on real files (`docs/format/maxdump.md`) and write down what you find
