@@ -41,7 +41,7 @@ A 3ds Max user should be able to:
 
 - **Running native 3ds Max plugins** (`.dlm`, `.dlo`, `.dlr`, `.dlu`, `.dle`, `.dli`, `.gup`, `.dll`, …). Not planned.
 - **Animation** import and Max's controller system. Revisit after v1.
-- **Saving `.max` files.** Native save is `.blend`; interchange is FBX / USD / OBJ.
+- ~~Saving `.max` files.~~ *Now in scope (maintainer decision, 2026-10-23): File > Save writes `.max` with an experimental writer, always with a native `.blend` backup alongside. See `docs/design/max-writer.md`.*
 - **MAXScript** compatibility.
 - **Staying in sync with upstream Blender.** The fork is allowed to diverge. Occasional deliberate merges of a newer Blender LTS are possible but not required.
 
@@ -268,6 +268,7 @@ Translate to Principled BSDF node trees that render close to the original in Cyc
 - [x] File → Import → `.max`, plus drag-and-drop into the viewport.
 - [x] **Import report** panel after each import: objects, materials, modifiers imported; unsupported classes with counts; missing textures. Exportable as text, so users can attach it to bug reports. *(Text block "Import Report" + status-bar summary.)*
 - [x] Graceful failure: a corrupt or unsupported-version file gives a clear message, never a crash. *(Fuzzed: corrupt files raise `MaxFileError`, reported to the user.)*
+- [~] **Save to `.max`** (experimental writer, Max 2015 format): File > Open / Save default to `.max`, `.blend` under Import / Export. Written files read back correctly in our reader; **not yet opened in Max** — maintainer test ladder via `python -m maxfile.writer.samples OUT_DIR`.
 - [~] Performance target: a 1-million-polygon scene imports in under 30 s on a mid-range machine (adjust after measuring). *(Shadow-Study (1.12M faces, 3,165 objects): 182 s under qemu emulation, estimated 10-15 s native.)*
 
 **Done when:** at least 80% of the test corpus (§6) imports with correct geometry (within tolerance of reference exports) and recognisable materials, and every unsupported feature is reported rather than silently dropped.
