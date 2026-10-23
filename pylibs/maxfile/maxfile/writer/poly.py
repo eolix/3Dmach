@@ -23,7 +23,7 @@ import struct
 from . import classes
 from .chunks import cont, f32, i32, leaf, u32, u32_array, f32_array, u8
 from .graph import MaxObject
-from .pblock import R, pb2
+from .pblock import FIRST_WORD, R, pb2
 
 
 def derive_edges(polygons):
@@ -162,6 +162,7 @@ def editable_poly(mesh) -> MaxObject:
 
 def _edit_poly_params(owner):
     """The Editable Poly parameter block (block 0): the dominant records of the 97 sampled 2015 blocks."""
-    from ._epoly_params import DESC_VERSION, RECORDS, ROLLOUTS
-    block = pb2(owner, DESC_VERSION, 0, [R(*r) for r in RECORDS], rollouts=ROLLOUTS, num_refs=1)
+    from ._epoly_params import RECORDS, ROLLOUTS
+    block = pb2(owner, FIRST_WORD["Editable Poly"], 0, [R(*r) for r in RECORDS], rollouts=ROLLOUTS,
+                num_refs=1)
     return block

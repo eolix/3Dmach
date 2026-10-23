@@ -27,7 +27,7 @@ from .controllers import bezier_color, bezier_float
 from .graph import MaxObject
 from .materials import MaterialWriter
 from .model import StandardMaterial
-from .pblock import OLD_FLOAT, OLD_INT, R, old_pb, pb2
+from .pblock import FIRST_WORD, OLD_FLOAT, OLD_INT, R, old_pb, pb2
 
 TICKS_PER_SECOND = 4800
 
@@ -272,19 +272,15 @@ def _list_controller(cls, desc_version):
 def _track_view(full):
     if not full:
         return _tv_node(markers=(0x0140,))
-    # Global tracks. The weights blocks' first header word differs between files; these are the values of the 18
-    # files that share one set (Float 0x68 ... Block Control 0x6E, Scene Effect Loader 0x71).
+    # Global tracks (list controllers without entries).
     global_tracks = _tv_node([
-        ("Float", _class_ident(0x4B4B1000), 1, _list_controller(classes.FLOAT_LIST, 0x68)),
-        ("Point3", _class_ident(0x4B4B1001), 1, _list_controller(classes.POINT3_LIST, 0x69)),
-        ("Position", _class_ident(0x4B4B1002), 1, _list_controller(classes.POSITION_LIST, 0x6B)),
-        ("Rotation", _class_ident(0x4B4B1003), 1, _list_controller(classes.ROTATION_LIST, 0x6C)),
-        ("Scale", _class_ident(0x4B4B1004), 1, _list_controller(classes.SCALE_LIST, 0x6D)),
-        ("Block Control", _class_ident(0x4B4B1015), 1, _list_controller(classes.BLOCK_CONTROL, 0x6E)),
-    ])
+        (name, _class_ident(cls.class_id), 1, _list_controller(cls, FIRST_WORD[cls.name]))
+        for name, cls in (("Float", classes.FLOAT_LIST), ("Point3", classes.POINT3_LIST),
+                          ("Position", classes.POSITION_LIST), ("Rotation", classes.ROTATION_LIST),
+                          ("Scale", classes.SCALE_LIST), ("Block Control", classes.BLOCK_CONTROL))])
     loader = _obj(classes.SCENE_EFFECT_LOADER, num_refs=1,
                   chunks=[leaf(0x0400, u32(0)), leaf(0x0410, u32(0)), leaf(0x0420, u32(0))])     # 304/304
-    loader.ref(0, pb2(loader, 0x71, 0, [
+    loader.ref(0, pb2(loader, FIRST_WORD["Scene Effect Loader"], 0, [
         R(0x00, 0x80E, 0x1000, 0x81, 0, 0x00, raw=u32(0)),      # three empty reference tables (304/304)
         R(0x01, 0x80E, 0x1000, 0x81, 0, 0x00, raw=u32(0)),
         R(0x02, 0x80E, 0x1000, 0x81, 0, 0x00, raw=u32(0)),

@@ -16,7 +16,6 @@ sits in reference slot 0).
 # Corpus: 15 rollout entries, the first open, the second closed, the rest open (34/80 blocks).
 ROLLOUTS = (1, 0) + (1,) * 13
 # Dominant record order: 60/80 blocks.
-DESC_VERSION = 96  # 18/80
 RECORDS = (
     (0x00, 4, 0x0002, 0x82, 0, 0x40, 0),                                                              # 80/80
     (0x01, 4, 0x0002, 0x82, 0, 0x40, 0),                                                              # 80/80

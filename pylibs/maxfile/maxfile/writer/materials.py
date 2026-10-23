@@ -21,7 +21,7 @@ import uuid
 from . import classes
 from .chunks import cont, f32, leaf, text, u32, u8
 from .graph import MaxObject
-from .pblock import OLD_FLOAT, OLD_INT, R, Table, old_pb, pb2
+from .pblock import FIRST_WORD, OLD_FLOAT, OLD_INT, R, Table, old_pb, pb2
 from .model import Bitmap, MultiSubMaterial, PhysicalMaterial, StandardMaterial
 
 # Standard material map slots with the Blinn shader (overview.md §7), and their scripting names.
@@ -113,7 +113,7 @@ class MaterialWriter:
         shader = self.blinn(m)
         obj.ref(1, texmaps)
         obj.ref(2, shader)
-        obj.ref(3, pb2(obj, 9, 0, [
+        obj.ref(3, pb2(obj, FIRST_WORD["Standard"], 0, [
             R(0x00, 1, 0x0000, 0x82, 0, 0x40, 1),               # shader index: 1 = Blinn (877/915)
             R(0x01, 4, 0x0000, 0x82, 0, 0x40, int(m.wire)),     # wire (914/915: 0)
             R(0x02, 4, 0x0000, 0x82, 0, 0x40, int(m.two_sided)),
@@ -121,7 +121,7 @@ class MaterialWriter:
             R(0x04, 4, 0x0000, 0x82, 0, 0x40, 0),               # faceted (915/915)
             R(0x05, 8, 0x0000, 0x80, 0, 0x40, None),            # shader name: none (903/915)
         ], rollouts=(1,)))
-        obj.ref(4, pb2(obj, 9, 1, [
+        obj.ref(4, pb2(obj, FIRST_WORD["Standard"], 1, [
             R(0x00, 1, 0x0000, 0x92, 0, 0x40, 0),               # 915/915
             R(0x01, 6, 0x0001, 0x92, 0, 0xC0, m.opacity / 100.0),
             R(0x02, 2, 0x0001, 0x82, 0, 0xC0, (0.5, 0.5, 0.5)),  # filter colour (865/915)
@@ -135,7 +135,8 @@ class MaterialWriter:
             R(0x0A, 0, 0x0001, 0x92, 0, 0xC0, 0.0),             # 915/915
             R(0x0B, 0, 0x0001, 0x92, 0, 0xC0, 3.0),             # reflection dimming (909/915)
         ]))
-        obj.ref(5, pb2(obj, 9, 2, [                             # Supersampling; record order as in all 915.
+        # Supersampling; record order as in all 915.
+        obj.ref(5, pb2(obj, FIRST_WORD["Standard"], 2, [
             R(0x00, 1, 0x0000, 0x82, 0, 0x40, 3),
             R(0x01, 0, 0x0001, 0x92, 0, 0xC0, 0.5),
             R(0x02, 4, 0x0001, 0x82, 0, 0xC0, 0),               # 914/915
@@ -155,13 +156,13 @@ class MaterialWriter:
         table_amounts = [amounts.get(i, 0.0 if 12 <= i <= 15 else 1.0) for i in range(24)]
         names = sorted((name + suffix, pid, index) for name, index in STANDARD_MAP_SLOTS.items()
                        for suffix, pid in (("Map", 1), ("MapAmount", 2), ("MapEnable", 0)))
-        obj.ref(6, pb2(obj, 9, 3, [
+        obj.ref(6, pb2(obj, FIRST_WORD["Standard"], 3, [
             R(0x00, 0x804, 0x0000, 0x82, 0, 0x00, Table(enables)),
             R(0x01, 0x80F, 0x0100, 0x81, 0, 0x00, Table(table_maps)),
             R(0x02, 0x806, 0x0000, 0x92, 0, 0x00, Table(table_amounts)),
             R(0x03, 4, 0x0000, 0x82, 0, 0x40, 1),               # 911/915
         ], names=names))
-        obj.ref(7, pb2(obj, 9, 4, []))                          # Dynamics: no records in all 915.
+        obj.ref(7, pb2(obj, FIRST_WORD["Standard"], 4, []))                          # Dynamics: no records in all 915.
         obj.ref(8, sampler())
         # Corpus: 0x5300 = 13 and 0x5600 > 0x0322 = 0 on all 915 Standards.
         obj.chunks = [mtl_header(m.name), leaf(0x5300, u32(13)), cont(0x5600, leaf(0x0322, u32(0)))]
@@ -171,7 +172,8 @@ class MaterialWriter:
     def blinn(m: StandardMaterial) -> MaxObject:
         obj = MaxObject(classes.BLINN, num_refs=1)
         ambient = m.ambient if m.ambient is not None else m.diffuse
-        obj.ref(0, pb2(obj, 6, 0, [                             # Blinn block: all 912 sampled shaders.
+        # Blinn block: all 912 sampled shaders.
+        obj.ref(0, pb2(obj, FIRST_WORD["Blinn"], 0, [
             R(0x00, 2, 0x0001, 0x82, 0, 0xC0, tuple(ambient)),
             R(0x01, 2, 0x0001, 0x82, 0, 0xC0, tuple(m.diffuse)),
             R(0x02, 2, 0x0001, 0x82, 0, 0xC0, tuple(m.specular)),
@@ -200,7 +202,7 @@ class MaterialWriter:
         obj = MaxObject(classes.MULTI_SUB, num_refs=count + 1, label="Multi/Sub " + m.name)
         # Corpus: all 57 Multi/Sub-Objects of the 2015 files have these four tables; IDs are stored 0-based
         # (overview.md §7), slot names are empty strings, and 0x1005 names item 0 of table 0 "material1".
-        obj.ref(0, pb2(obj, 15, 0, [
+        obj.ref(0, pb2(obj, FIRST_WORD["Multi/Sub-Object"], 0, [
             R(0x00, 0x80E, 0x1300, 0x881, 0, 0x00, Table(subs)),
             R(0x01, 0x804, 0x1000, 0x82, 0, 0x00, Table([1] * count)),
             R(0x02, 0x808, 0x1000, 0x80, 0, 0x00, Table(names)),
@@ -225,7 +227,7 @@ class MaterialWriter:
         info = [leaf(0x1201, bitmap_info()), cont(0x1260, leaf(0x0002, guid))]
         if ext in _FORMAT_NAMES:
             info.append(leaf(0x1240, text(_FORMAT_NAMES[ext])))
-        main = pb2(obj, 9, 0, [                                 # All 175 Bitmaps of the 2015 files.
+        main = pb2(obj, FIRST_WORD["Bitmap"], 0, [                                 # All 175 Bitmaps of the 2015 files.
             R(0x00, 0, 0x0001, 0x92, 0, 0xC0, 0.0),             # clip u
             R(0x01, 0, 0x0001, 0x92, 0, 0xC0, 0.0),             # clip v
             R(0x02, 0, 0x0001, 0x92, 0, 0xC0, 1.0),             # clip w
@@ -245,7 +247,7 @@ class MaterialWriter:
             # File name as an asset reference: length 0xFFFFFFFE, then 0x000F > 0x0002 = asset ID (overview §5.1).
             R(0x10, 9, 0x0002, 0x80, 2, 0x40, raw=u32(0xFFFFFFFE), after=[cont(0x000F, leaf(0x0002, guid))]),
         ], rollouts=(1,))
-        timing = pb2(obj, 9, 1, [                               # Time block, all 175.
+        timing = pb2(obj, FIRST_WORD["Bitmap"], 1, [                               # Time block, all 175.
             R(0x00, 12, 0x0000, 0x92, 0, 0x40, 0),              # start frame
             R(0x01, 0, 0x0000, 0x92, 0, 0x40, 1.0),             # playback rate
             R(0x02, 1, 0x0000, 0x92, 0, 0x40, 0),               # end condition

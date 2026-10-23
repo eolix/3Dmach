@@ -8,7 +8,7 @@ Parameter blocks: ParamBlock2 (class 0x82) and the old ParamBlock (class 0x8), t
 
 ParamBlock2 object layout written (the order of every 2015 corpus block)::
 
-    0x0009  u32 descriptor version, u16 block ID, u32 Max version, u16 record count, u32 owner object index
+    0x0009  u32 first word, u16 block ID, u32 Max version, u16 record count, u32 owner object index
     0x100E  one per parameter: u16 id, u32 type, u16 flags_a, u32 flags_b, u16 (0 or 2), u8 value flags, value
     ...     chunks that follow a record (asset reference 0x000F after a file name, bitmap info 0x0003)
     0x1005  optional: scripting names of table items
@@ -18,6 +18,11 @@ ParamBlock2 object layout written (the order of every 2015 corpus block)::
 
 The record heads (type and flag words) are not decoded beyond what the reader needs; the writer emits the heads
 the corpus blocks of each class have (given per class next to the parameter values).
+
+The header's first word is not understood: it differs between files even for the same class and Max build
+(Standard: 9 in most 2015 files, 7, 14 or 16 in others; list controllers of one file have consecutive values),
+so it may be assigned at run time. The writer uses, per class, a value seen in the files saved by the build it
+imitates (version word 0x42042B08, the 76 files of build 411): see ``FIRST_WORD``.
 """
 
 __all__ = ("R", "Table", "pb2", "old_pb", "OLD_FLOAT", "OLD_INT", "OLD_POINT3", "OLD_COLOR", "MAX_VERSION_WORD")
@@ -32,6 +37,23 @@ from .graph import NULL, MaxObject
 # Corpus: the Max version word of the 0x0009 header in 2015 files: 0x42042B08 in 147 of 357 sampled blocks of
 # Standard materials, 0x42042B0A in 120, 0x42042B06 in 90 (the high word is the release, 16900).
 MAX_VERSION_WORD = 0x42042B08
+
+# Header first word per block owner (see the module docstring); values seen with version word 0x42042B08, with
+# the number of 2015 files where that pair occurs.
+FIRST_WORD = {
+    "Standard": 9,              # 49 files
+    "Blinn": 6,                 # 49
+    "Bitmap": 9,                # 17
+    "Multi/Sub-Object": 15,     # 16
+    "Editable Poly": 23,        # 2 (23 and 26 both twice; 96 with 0x42042B0A in 18)
+    "Float List": 47,           # 14 (the 14 files whose global tracks have the consecutive values 47 ... 53)
+    "Point3 List": 48,          # 14
+    "Position List": 50,        # 14
+    "Rotation List": 51,        # 14
+    "Scale List": 52,           # 14
+    "Block Control": 53,        # 20
+    "Scene Effect Loader": 61,  # 15
+}
 
 # Value layouts by parameter type (overview.md §5.1).
 _SCALAR = {0: "<f", 5: "<f", 6: "<f", 7: "<f", 1: "<i", 12: "<i", 13: "<i", 19: "<i", 4: "<I", 2: "<3f",
