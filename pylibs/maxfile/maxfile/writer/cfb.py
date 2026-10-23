@@ -108,6 +108,7 @@ def write_compound_file(streams, root_clsid=MAX_ROOT_CLSID, modified=0) -> bytes
     root = _Entry("Root Entry", _ROOT)
     root.clsid = root_clsid.bytes_le if root_clsid is not None else b"\0" * 16
     root.mtime = _filetime(modified)
+    root.color = _RED               # As in all corpus files (the root is in no tree, so the colour is free).
     entries = [root]
     for path, data in streams:
         parts = path.split("/")
