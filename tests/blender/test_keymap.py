@@ -171,7 +171,10 @@ EXPECTED = [
     ("Mesh", "mesh.loop_select", 'LEFTMOUSE', 'DOUBLE_CLICK', {}, {}),
     # Blender bindings that are kept.
     ("Object Non-modal", "object.mode_set", 'TAB', 'PRESS', {}, {"mode": 'EDIT'}),
-    ("Window", "wm.save_mainfile", 'S', 'PRESS', {"ctrl": True}, {}),
+    # Open / Save default to .max (mx_io_max's operators).
+    ("Window", "wm.mx_open", 'O', 'PRESS', {"ctrl": True}, {}),
+    ("Window", "wm.mx_save", 'S', 'PRESS', {"ctrl": True}, {}),
+    ("Window", "wm.mx_save_as", 'S', 'PRESS', {"ctrl": True, "shift": True}, {}),
     ("3D View Generic", "wm.context_toggle", 'N', 'PRESS', {}, {"data_path": "space_data.show_region_ui"}),
     ("Screen", "render.render", 'F12', 'PRESS', {}, {}),
 ]

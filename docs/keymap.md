@@ -117,6 +117,14 @@ For non-mesh objects, 1-5 enter edit mode (and the same key or 6 leaves it).
 | Render last | F9 | Renders again, same as Shift + Q. Anywhere |
 | Play animation | `/` | Plays / stops animation (Space plays animation outside the 3D viewport) |
 
+## Files
+
+| Max action | Key | In this app |
+|---|---|---|
+| Open | Ctrl + O | Opens a `.max` scene into a fresh scene (or a `.blend` file). File > Import > .max merges instead |
+| Save | Ctrl + S | Saves to the scene's `.max` file with the `.max` writer, plus a `<name>.max.3dmach.blend` backup that Open uses when it's newer; without the writer, saves the native scene |
+| Save As | Ctrl + Shift + S | Same, under a new name; choose `.blend` for a native 3Dmach / Blender scene |
+
 ## Blender keys that are kept
 
 Tab (edit mode), Ctrl + Tab (mode pie), N (sidebar), F1 (manual), F2 (rename), F11 / F12 (render view / render),

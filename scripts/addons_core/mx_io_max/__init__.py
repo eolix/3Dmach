@@ -24,6 +24,8 @@ if "bpy" in locals():
     import importlib
     if "build_scene" in locals():
         importlib.reload(build_scene)
+    if "file_ops" in locals():
+        importlib.reload(file_ops)
 
 import os
 
@@ -41,6 +43,7 @@ from bpy_extras.io_utils import (
 )
 
 from . import build_scene
+from . import file_ops
 
 
 class IMPORT_SCENE_OT_mx_max(bpy.types.Operator, ImportHelper):
@@ -155,6 +158,7 @@ def menu_func_import(self, _context):
 classes = (
     IMPORT_SCENE_OT_mx_max,
     IO_FH_mx_max,
+    *file_ops.classes,
 )
 
 
@@ -162,9 +166,11 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    file_ops.register()
 
 
 def unregister():
+    file_ops.unregister()
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

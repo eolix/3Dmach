@@ -451,6 +451,10 @@ def apply_max_overrides(keyconfig_data):
     # Window-wide: render, render setup, redo.
     window = tuple(name for name in ("Window", "Screen") if name in keymaps)
     _prepend(keymaps, "Window", [
+        # Open / Save default to .max (operators from mx_io_max).
+        op("wm.mx_open", ev('O', ctrl=True)),
+        op("wm.mx_save", ev('S', ctrl=True)),
+        op("wm.mx_save_as", ev('S', ctrl=True, shift=True)),
         op("mx_keymap.open_editor", ev('F10'), ("editor", 'RENDER')),
         op("render.render", ev('Q', shift=True), ("use_viewport", True)),
         op("render.render", ev('F9'), ("use_viewport", True)),
