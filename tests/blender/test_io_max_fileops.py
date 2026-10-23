@@ -56,6 +56,27 @@ class FileOpsTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "isn't available yet"):
             bpy.ops.wm.mx_save_as(filepath=self.path("scene.max"))
 
+    def test_save_as_max_with_writer(self):
+        from mx_io_max import file_ops
+        if not file_ops.writer_available():
+            self.skipTest("the .max writer is not installed")
+        bpy.ops.wm.read_homefile(use_empty=True)
+        bpy.ops.mesh.primitive_cube_add()
+        path = self.path("cube.max")
+        self.assertEqual(bpy.ops.wm.mx_save_as(filepath=path), {'FINISHED'})
+        self.assertTrue(os.path.isfile(path))
+        self.assertTrue(os.path.isfile(file_ops.backup_path(path)))
+        self.assertEqual(bpy.context.scene[file_ops.MAX_PATH_KEY], path)
+        # The written .max reads back with the cube in it.
+        import maxfile
+        with maxfile.open(path) as mf:
+            self.assertEqual([n.name for n in mf.nodes if n.name], ["Cube"])
+        # Save writes the same .max again.
+        before = os.path.getmtime(path)
+        time.sleep(1.1)
+        self.assertEqual(bpy.ops.wm.mx_save(), {'FINISHED'})
+        self.assertGreater(os.path.getmtime(path), before)
+
     def test_open_uses_newer_backup(self):
         from mx_io_max import file_ops
         max_path = self.path("room.max")
