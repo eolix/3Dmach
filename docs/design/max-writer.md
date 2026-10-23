@@ -106,18 +106,24 @@ rotation (`docs/format/overview.md` §4.1). Hidden / frozen are the guessed flag
 ### Editable Poly
 
 `0x08FE` holds vertices (`0x0100`), edges (`0x010A`, derived from the polygons in the order Max lists them: first
-use, in face order), polygons (`0x011A`: material ID 0-based, smoothing groups, triangulation diagonals for
-polygons with more than three corners), map channels (`0x0120`, `0x0124`/`0x0128`/`0x012B`), and the
-vertex adjacency `0x0310` (per vertex: the incident edges, then the incident faces, ascending; worked out on
-corpus boxes). The object has the Editable Poly parameter block (reference 0, dominant values) and a Master Point
-Controller (reference 1).
+use, in face order; exactly the stored list on the 85 of 299 corpus meshes that weren't edited after building),
+polygons (`0x011A`: material ID 0-based, smoothing groups, fan triangulation diagonals for polygons with more than
+three corners), map channels (`0x0120`, `0x0124`/`0x0128`/`0x012B`), and the vertex adjacency `0x0310` (per
+vertex: the incident edges, then the incident polygons, each ascending: reproduced exactly on all 131 corpus meshes
+whose lists are sorted, i.e. the unedited ones; checked by `test_corpus_poly_adjacency_rule`). The object has the
+Editable Poly parameter block (reference 0: 125 records, each the dominant one of the corpus,
+`writer/_epoly_params.py`) and a Master Point Controller (reference 1).
+
+Nodes without a mesh become **Dummy** helpers (`0x876234` / `0x50`: `0x09EC`, the box `0x09ED`, `0x09EE`).
 
 ### Materials
 
 - **Standard** (`0x2` / `0xC00`): Texmaps (ref 1), Blinn shader with its block (ref 2), five ParamBlock2 (refs
   3-7, block IDs 0-4, layouts and defaults from the corpus), sampler "Max 2.5 Star" (ref 8). Diffuse, specular,
   glossiness, specular level, opacity and the diffuse / bump / opacity / specular maps are set from the model.
-- **Physical Material** (`0xDEADC0013D6B1CEC` / `0xC00`): ParamBlock2 0 with the parameters of overview §7.
+- **Physical Material** (`0xDEADC0013D6B1CEC` / `0xC00`): the class exists since Max 2017, so it is written with
+  the layout of the 2018 corpus files (115 records, maps in reference slots 0-24, the `0x0012` map-index table, 8
+  rollouts, version word 1); its two "Ray Engine" references are left empty. **Experimental, opt-in.**
 - **Multi/Sub-Object** (`0x200` / `0xC00`): ParamBlock2 0 (tables of materials, enables, names, 0-based IDs),
   references i+1 = sub-materials, `0x4002` = count.
 - **Bitmap** (`0x240` / `0xC10`): Placement (UVGen), ParamBlock2 with the file name as an asset reference
@@ -129,14 +135,57 @@ Controller (reference 1).
    settings blobs). Max's loaders are chunk loops that skip unknown chunks and keep defaults for missing ones, but
    a missing *reference* (an object a class expects) can crash. Mitigation: every object we write has the full
    reference layout real files have; the sample ladder starts with an empty scene so failures can be bisected.
-2. **Parameter blocks** carry a descriptor version and per-parameter type / flag words; a mismatch may make Max
-   drop the block or refuse the file. Mitigation: heads are emitted exactly as the dominant corpus records.
+2. **Parameter blocks** carry a header word not understood (it differs between files even for one class) and
+   per-parameter type / flag words; a mismatch may make Max drop the block or refuse the file. Mitigation: heads
+   are emitted exactly as the dominant corpus records; header words as seen in files of the imitated build.
 3. **Editable Poly** has cached data (`0x0310`, edges, flags) Max may check for consistency. Mitigation: derived
    from the polygons the way the corpus boxes show; a crash here would show up at step 02 of the ladder.
 4. **Version checks**: Max may read the version from several places (DLL header, SaveConfigData, Scene container
    type, summary information). All are written consistently for 2015.
 5. Unknown flag bits (node flags, display chunks) use the dominant values, so objects may come up with odd
    display settings rather than fail.
+6. **Empty `ClassData` / `ScriptedCustAttribDefs` streams and the minimal `Config`**: real files always fill them.
+   If 01 fails while the format checks pass, these are the first suspects (then the track view entries: 01b).
+7. **Physical Material** in a 2015-format file is something Max never wrote itself (the class is from 2017), and
+   its Ray Engine references are empty.
+
+## Constants copied from the corpus
+
+Every value the reader doesn't decode is the dominant one of the targeted files, with its count next to it in the
+code (`grep -rn "/305\|/915\|/344\|Corpus" pylibs/maxfile/maxfile/writer/`). The main groups:
+
+| What | Where | Frequency |
+|---|---|---|
+| Version stamps (DLL header, SaveConfigData, Scene container `0x2020`, summary strings) | `writer/__init__.py`, `streams.py` | 305/305 (build 411: 76/305) |
+| Root CLSID | `cfb.py` | 623/623 |
+| Scene-level objects and their leaf values (Material Editor grid, sound, render settings, render element managers, track view IDs, layer "0", isolation data) | `skeleton.py` | mostly 305/305; render settings 185-305/305 |
+| Node display / render chunks (`0x0963`, `0x099C`, `0x0AD2`, `0x0B22`, `0x0AF0`, `0x0B0E`, ...) | `nodes.py` | 295-344/344 Editable Poly nodes; sub-records 5,113/5,113 |
+| Node flags `0x1000` | `nodes.py` | 256/344 |
+| Key controller chunks (`0x2500` forever, `0x3002`, `0x3003`, `0x3005` = 0x186) | `controllers.py` | 355-4,176 of their class |
+| Editable Poly object chunks and `0x0906` record | `poly.py` | 193/193 sampled |
+| Editable Poly mesh flags `0x0150` = 0x00080003, `0x0140` = 0x40, `0x0320` = 10 | `poly.py` | 87/193, 134/193, 77/193 (meaning unknown) |
+| Edit Poly parameter block (125 records) | `_epoly_params.py` | per record, mostly 80/80 |
+| Standard / Blinn / Bitmap / Multi/Sub blocks: record heads and the defaults the model doesn't set | `materials.py` | per record, 560-915/915 Standards, 98-175/175 Bitmaps |
+| Bitmap info record `0x1201`, format names by extension | `materials.py` | 55/242, 242/242 |
+| ParamBlock2 header first word | `pblock.py` (`FIRST_WORD`) | varies between files even per class (run-time assigned?); values from the build-411 files |
+| Physical Material block (115 records) | `_physical_params.py` | per record of 106 sampled 2018 materials |
+| Config scalars (grid, time, render range, gamma) | `streams.py` | 201-305/305 |
+
+## Verification (done)
+
+- Round trip (`pylibs/maxfile/tests/test_writer.py`, 25 tests): nodes, hierarchy, transforms and the quaternion
+  convention, object offset, units, geometry (tris / quads / n-gons, IDs, smoothing, two map channels,
+  instances), Standard / Multi/Sub / Physical materials, bitmaps and the asset table, determinism, the container
+  (red-black directory, big and mini streams), error cases.
+- Structure against real 2015 files (`test_writer_corpus.py`, 34 tests, skipped without corpus): streams, root
+  CLSID, scene object, chunk order of 25 classes, class / DLL entries of every class used, node / Editable Poly /
+  Standard / Bitmap / Multi/Sub layouts and record heads, the adjacency rule.
+- Every chunk path the samples contain (per class, e.g. `/0B0E+/0001+/0013`) occurs in real objects of the same
+  class in the 2015 files (2018 files for the Physical Material); checked with a probe over the corpus.
+- `maxdump` and `tests/corpus/survey.py` read all samples without a warning.
+- Blender (`tests/blender/test_io_max_export.py`): export, read back with `maxfile`, re-import with
+  `import_scene.mx_max`: world matrices, vertices, material slots / IDs, maps and tiling, units, selection,
+  smoothing groups, Physical materials.
 
 ## Test plan
 
@@ -147,7 +196,21 @@ Controller (reference 1).
   version stamps, Scene container type, scene-object references, class / DLL entries and node / material chunk
   layouts match real 2015 files.
 - **Blender**: export, re-import with `import_scene.mx_max`, compare objects / transforms / geometry / materials.
-- **Max (maintainer)**: `python -m maxfile.writer.samples OUT_DIR` writes a ladder of files (empty scene, one
-  box, hierarchy, materials, units, many objects) with a README saying what Max should show for each. The
-  maintainer reports per file: opens / doesn't open (message) / what looks wrong. Failures early in the ladder
-  point at the scene-level skeleton, later ones at the object they introduce.
+- **Max (maintainer)**: `cd pylibs/maxfile && python -m maxfile.writer.samples OUT_DIR` writes a ladder of files
+  with a README saying what Max should show for each:
+
+  | File | Adds |
+  |---|---|
+  | `01_empty.max` | the scene skeleton only |
+  | `01b_empty_lean.max` | diagnostic: minimal skeleton (no default materials, track view entries, render settings) |
+  | `02_box.max` | one Editable Poly box (smoothing groups, UVs) |
+  | `02b_triangle.max` | diagnostic: one triangle, no UVs / smoothing |
+  | `03_hierarchy.max` | parenting, rotations, non-uniform scale, a Dummy group, hidden / frozen, an object offset |
+  | `04_materials.max` | Standard materials, a Bitmap (PNG written next to the file), Multi/Sub-Object |
+  | `04b_physical.max` | Physical Materials (Max 2017+) |
+  | `05_units_cm.max` | centimetres; a cylinder with 16-sided polygons |
+  | `06_many_objects.max` | 100 nodes |
+
+  The maintainer reports per file: opens / doesn't open (message) / what looks wrong. Failures early in the ladder
+  point at the scene-level skeleton, later ones at the object they introduce; the "b" files split the first two
+  steps.
