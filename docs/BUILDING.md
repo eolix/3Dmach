@@ -75,8 +75,8 @@ If an earlier install already copied files into `/usr/local`, remove them **befo
 install overwrites the list of what was copied):
 
 ```sh
-sudo xargs -d '\n' rm -f < ../build_linux/install_manifest.txt
-sudo find /usr/local/5.2 /usr/local/lib -depth -type d -empty -delete
+sudo xargs -d '\n' rm -f < ../build_linux/install_manifest.txt   # only the files that install copied
+sudo rm -r /usr/local/5.2                                          # the version folder it created
 ```
 
 If `bin/5.2/python` is still missing, the precompiled libraries weren't fetched: run `make update` first
