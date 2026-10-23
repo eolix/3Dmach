@@ -40,13 +40,13 @@ _FORMAT_NAMES = {
 }
 
 
-def mtl_header(name, flags=0x200):
+def mtl_header(name, flags=0x200, container=0x4000):
     """The MtlBase header container 0x4000 (overview.md §7): name, flags, 0x4020, 0x4030.
 
     Corpus: 0x4003 = 0x200 on 759 of 915 Standards and 140 of 175 Bitmaps; 0x4020 = 0 and 0x4030 =
     (0, 0, 0, 1.0) on all of them.
     """
-    return cont(0x4000, leaf(0x4001, text(name or "")), leaf(0x4003, u32(flags)), leaf(0x4020, u32(0)),
+    return cont(container, leaf(0x4001, text(name or "")), leaf(0x4003, u32(flags)), leaf(0x4020, u32(0)),
                 leaf(0x4030, u32(0, 0, 0) + f32(1.0)))
 
 

@@ -121,7 +121,7 @@ def _leaf_lazy(chunk_type, parts):
 
 
 def pb2(owner: MaxObject, desc_version: int, block_id: int, records, rollouts=(0,), names=None,
-        refs=None, num_refs=None) -> MaxObject:
+        refs=None, num_refs=None, version_word=MAX_VERSION_WORD, extra_chunks=()) -> MaxObject:
     """
     A ParamBlock2 object owned by ``owner`` (whose index goes into the header).
 
@@ -131,7 +131,7 @@ def pb2(owner: MaxObject, desc_version: int, block_id: int, records, rollouts=(0
     records = list(records)
     obj = MaxObject(classes.PARAM_BLOCK2, refs=refs, num_refs=num_refs)
     obj.chunks.append(lambda index_of: leaf(0x0009, struct.pack(
-        "<IHIHI", desc_version, block_id, MAX_VERSION_WORD, len(records), index_of(owner))))
+        "<IHIHI", desc_version, block_id, version_word, len(records), index_of(owner))))
     for record in records:
         obj.chunks.append(_leaf_lazy(0x100E, record.parts()))
         obj.chunks.extend(record.after)
@@ -143,6 +143,7 @@ def pb2(owner: MaxObject, desc_version: int, block_id: int, records, rollouts=(0
         obj.chunks.append(leaf(0x1005, b"".join(body)))
     obj.chunks.append(leaf(0x000C, u32(len(rollouts)) + b"".join(struct.pack("<IH", r, 0) for r in rollouts)))
     obj.chunks.append(leaf(0x0011, u8(1)))
+    obj.chunks.extend(extra_chunks)
     return obj
 
 
