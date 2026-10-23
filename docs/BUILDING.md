@@ -60,6 +60,25 @@ ls ../build_linux/bin/5.2                         # datafiles  python  scripts
 ../build_linux/bin/blender
 ```
 
+If the install step prints `Installing: /usr/local/./blender` (or `ls ../build_linux/bin/5.2` still fails), the build
+folder's install location isn't `build_linux/bin`: Blender only picks that default the first time a build folder
+is configured, unless something (a `CMAKE_INSTALL_PREFIX` environment variable, an IDE, the CMake GUI) set it
+already. Set it explicitly and install again, without `sudo`:
+
+```sh
+grep CMAKE_INSTALL_PREFIX: ../build_linux/CMakeCache.txt          # shows the current location
+cmake -B ../build_linux -DCMAKE_INSTALL_PREFIX="$(realpath ../build_linux)/bin"
+cmake --build ../build_linux --target install
+```
+
+If an earlier install already copied files into `/usr/local`, remove them **before** installing again (the next
+install overwrites the list of what was copied):
+
+```sh
+sudo xargs -d '\n' rm -f < ../build_linux/install_manifest.txt
+sudo find /usr/local/5.2 /usr/local/lib -depth -type d -empty -delete
+```
+
 If `bin/5.2/python` is still missing, the precompiled libraries weren't fetched: run `make update` first
 (it downloads `lib/linux_x64`), then build again.
 
