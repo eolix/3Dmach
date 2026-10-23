@@ -130,7 +130,8 @@ class SceneBuilder:
             self.collection = bpy.data.collections.new(name)
             self.context.scene.collection.children.link(self.collection)
         else:
-            self.collection = self.context.collection
+            # The active collection, or the scene's own one when the context has none (e.g. from a timer).
+            self.collection = self.context.collection or self.context.scene.collection
 
         scene = mf.scene
         self._scene = scene

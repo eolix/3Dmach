@@ -54,7 +54,10 @@ def _open_max_deferred(filepath):
     """After ``read_homefile`` the operator's context is gone: import from a timer once the new file is up."""
     def run():
         window = bpy.context.window_manager.windows[0] if bpy.context.window_manager.windows else None
-        override = {"window": window} if window else {}
+        override = {}
+        if window is not None:
+            # Timers run without a window context: give the import the new file's scene and view layer.
+            override = {"window": window, "scene": window.scene, "view_layer": window.view_layer}
         with bpy.context.temp_override(**override):
             try:
                 bpy.ops.import_scene.mx_max(filepath=filepath, use_collection=False)
@@ -62,6 +65,11 @@ def _open_max_deferred(filepath):
                 print("3Dmach: could not open {!r}: {}".format(filepath, ex))
                 return None
             bpy.context.scene[MAX_PATH_KEY] = filepath
+            bpy.context.view_layer.update()
+        # Data added from a timer sends no notifiers: redraw explicitly so the scene shows up right away.
+        for win in bpy.context.window_manager.windows:
+            for area in win.screen.areas:
+                area.tag_redraw()
         return None
     bpy.app.timers.register(run, first_interval=0.01)
 
